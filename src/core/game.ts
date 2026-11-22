@@ -159,9 +159,11 @@ export class TrucoGame {
       ? ['envido', 'real', 'falta']
       : envidoRaisesFor(bids);
     return calls.map((call) => {
-      // El segundo «envido» se llama «envido envido» y es UNA sola opción
-      // (2 + 2 = 4). No se ofrece también «envido»: sería el mismo canto dos veces.
-      if (call === 'envido' && bids.length > 0 && envidoWordCount(bids) === 1) {
+      // El segundo «envido» consecutivo se llama «envido envido» y es UNA sola
+      // opción (2 + 2 = 4). Si el canto anterior fue real, la respuesta «envido»
+      // es simplemente otro envido (+2) y se ofrece como tal.
+      const last = bids[bids.length - 1];
+      if (call === 'envido' && last?.call === 'envido' && envidoWordCount(bids) === 1) {
         return { type: 'callEnvidoEnvido' } as GameAction;
       }
       return envidoActionForCall(call);

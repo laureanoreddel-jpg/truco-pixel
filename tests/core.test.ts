@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseAiAction } from '../src/core/ai';
+import { chooseAiAction, makeStoryProfile } from '../src/core/ai';
 import { createDeck } from '../src/core/deck';
 import { TrucoGame } from '../src/core/game';
 import { cardStrength, declinePoints, envidoScore, strengthTier, trucoPoints } from '../src/core/hand';
@@ -413,5 +413,21 @@ describe('modo historia', () => {
   it('el progreso nunca retrocede', () => {
     expect(markStoryWin(3, 0)).toBe(3);
     expect(markStoryWin(5, 0)).toBe(5);
+  });
+
+  it('cada rival tiene frases y un perfil de IA válido', () => {
+    for (const opponent of STORY_OPPONENTS) {
+      expect(opponent.taunts.truco.length).toBeGreaterThan(0);
+      expect(opponent.taunts.envido.length).toBeGreaterThan(0);
+      const profile = makeStoryProfile(opponent.difficulty, opponent.profile ?? {});
+      expect(profile.bluff).toBeGreaterThanOrEqual(0);
+      expect(profile.bluff).toBeLessThanOrEqual(1);
+      expect(profile.envidoBias).toBeGreaterThanOrEqual(-1);
+      expect(profile.envidoBias).toBeLessThanOrEqual(1);
+      expect(profile.foldTolerance).toBeGreaterThanOrEqual(0);
+      expect(profile.foldTolerance).toBeLessThanOrEqual(1);
+      expect(profile.samples).toBeGreaterThan(0);
+      expect(profile.label.length).toBeGreaterThan(0);
+    }
   });
 });

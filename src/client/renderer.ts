@@ -15,6 +15,7 @@ import {
   drawSuit,
   drawText,
   drawRivalPortrait,
+  drawRivalAction,
   drawTextCentered,
   drawTextCenteredShadow,
   drawTextShadow,
@@ -140,7 +141,8 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
       'REAL DIRECTO RECHAZADO = 1',
       'ENV + ENV RECHAZADO = 2',
       'DESPUES DEL REAL SOLO FALTA',
-      'FALTA EMPATADOS: FALTAN 15',
+      'FALTA: LO QUE LE FALTA AL LIDER',
+      'EMPATADOS A 0: VALEN 15',
       'TANTOS EN JUEGO SE PAGAN',
       'AL CERRAR LA MANO, NO CORTA',
       'EMPATE DE TANTOS: GANA EL MANO',
@@ -176,7 +178,7 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
 ];
 
 function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}.` : text;
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…` : text;
 }
 
 function wrapText(text: string, maxChars: number): string[] {
@@ -197,6 +199,24 @@ function wrapText(text: string, maxChars: number): string[] {
 
 function rightText(ctx: CanvasRenderingContext2D, text: string, right: number, y: number, color: string, scale = 1): void {
   drawText(ctx, text, right - textWidth(text, scale), y, color, scale);
+}
+
+const SUIT_LETTERS: Record<Card['suit'], string> = { espada: 'E', basto: 'B', oro: 'O', copa: 'C' };
+
+/** "7 de espada" -> "7E": entra en el historial sin perder el palo. */
+function shortCard(card: Card): string {
+  return `${card.rank}${SUIT_LETTERS[card.suit]}`;
+}
+
+/** "Jugador 1 juega 7 de espada" -> "J1 → 7E": historial corto pero claro. */
+function logEntry(line: string, human: PlayerIndex): string {
+  const shown = namesForViewer(line, human);
+  const play = shown.match(/^(.*?) juega (.+?) de (espada|basto|oro|copa)$/i);
+  if (play) {
+    const who = play[1].replace(/^Vos$/, 'VOS').replace(/^Rival$/, 'RIVAL').replace(/^Jugador [12]$/, 'RIVAL');
+    return `${who} → ${play[2]}${SUIT_LETTERS[play[3].toLowerCase() as Card['suit']]}`;
+  }
+  return shown;
 }
 
 function tierName(tier: number): string {
@@ -698,15 +718,39 @@ export class Renderer {
     const rivalPlayed = shownPlayed[rival];
     const humanPlayed = shownPlayed[human];
 
-    // Las rondas cerradas quedan apiladas a los costados: se ve qué salió.
+    // Las rondas cerradas quedan apiladas a los costados con su número: se ve qué salió.
     for (let r = 0; r < Math.min(state.round, 3); r++) {
       const round = state.played[r];
-      if (round[rival]) this.scaledCard(round[rival]!, 16, 80 + r * 28, 0.5);
-      if (round[human]) this.scaledCard(round[human]!, W - 38, 80 + r * 28, 0.5);
+      if (round[rival]) {
+        this.scaledCard(round[rival]!, 14, 80 + r * 30, 0.65, false, 0, undefined, strengthTier(round[rival]!));
+        drawText(ctx, `R${r + 1}`, 14, 70 + r * 30, COLORS.red);
+      }
+      if (round[human]) {
+        this.scaledCard(round[human]!, W - 43, 80 + r * 30, 0.65, false, 0, undefined, strengthTier(round[human]!));
+        drawText(ctx, `R${r + 1}`, W - 43, 70 + r * 30, COLORS.green);
+      }
     }
-    // Nunca se dibuja un dorso que el rival no jugó.
-    if (rivalPlayed) this.scaledCard(rivalPlayed, 222, 74, 0.8);
-    if (humanPlayed) this.scaledCard(humanPlayed, 218, 124, 1);
+    // Nunca se dibuja un dorso que el rival no jugó. Las cartas en juego son grandes
+    // y llevan etiqueta: así se entiende de un vistazo qué tiró cada uno.
+    if (rivalPlayed) {
+      this.scaledCard(rivalPlayed, 218, 72, 1, true, 0, undefined, strengthTier(rivalPlayed));
+      this.panel(196, 62, 46, 10, 'rgba(10,7,14,0.92)', COLORS.redDark);
+      drawTextCentered(ctx, `${rivalLabel.slice(0, 7)} R${Math.min(state.round, 2) + 1}`, 219, 63, COLORS.cream);
+    }
+    if (humanPlayed) {
+      this.scaledCard(humanPlayed, 218, 122, 1, true, 0, undefined, strengthTier(humanPlayed));
+      this.panel(196, 112, 46, 10, 'rgba(10,7,14,0.92)', COLORS.green);
+      drawTextCentered(ctx, `VOS R${Math.min(state.round, 2) + 1}`, 219, 113, COLORS.cream);
+    }
+    // El rival sigue presente mientras se juega: gesto, nombre y color de campaña.
+    if (state.phase === 'playing') {
+      drawRivalAction(ctx, 56, 44, view.opponent?.name ?? rivalLabel, view.opponent?.color, {
+        thinking: rivalTurn,
+        celebrating: !!this.roundFlash && this.roundFlash.text === 'PERDISTE LA RONDA',
+        annoyed: !!this.roundFlash && this.roundFlash.text === 'GANASTE LA RONDA',
+        talking: !!view.taunt,
+      }, view.opponent?.id ?? rivalLabel);
+    }
 
     if (state.pending) {
       const p = state.pending;
@@ -739,22 +783,27 @@ export class Renderer {
     }
 
     if (view.disconnected) {
-      this.panel(150, 84, 180, 20, COLORS.redDark, COLORS.gold);
-      drawTextCentered(ctx, 'RIVAL DESCONECTADO', W / 2, 88, COLORS.white);
+      this.panel(166, 104, 148, 16, COLORS.redDark, COLORS.gold);
+      drawTextCentered(ctx, 'RIVAL DESCONECTADO', W / 2, 108, COLORS.white);
     }
-    if (this.roundFlash && performance.now() < this.roundFlash.until) {
-      this.panel(166, 58, 148, 18, 'rgba(10,7,14,0.94)', COLORS.green);
-      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 62, COLORS.cream, 1);
-    } else {
+    // La ronda se anuncia sin tapar el cartel de canto ni las cartas.
+    if (this.roundFlash && performance.now() < this.roundFlash.until && !state.pending) {
+      this.panel(166, 106, 148, 16, 'rgba(10,7,14,0.94)', COLORS.green);
+      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 110, COLORS.cream, 1);
+    } else if (this.roundFlash && performance.now() >= this.roundFlash.until) {
       this.roundFlash = null;
     }
 
+    // Ronda explícita bajo el marcador, como promete la ayuda.
+    drawTextCentered(ctx, `RONDA ${Math.min(state.round + 1, 3)}/3`, W / 2, 53, COLORS.cream);
+    for (let r = 0; r < 3; r++) drawTextCentered(ctx, `R${r + 1}`, 234.5 + r * 10, 54, COLORS.gray);
+
     // Historial breve: lo cantado y jugado no se pierde al pasar de ronda.
-    const recent = state.log.slice(-2);
+    const recent = state.log.slice(-3);
     if (recent.length > 0) {
-      this.panel(8, 134, 150, 24, 'rgba(10,7,14,0.88)', COLORS.goldDark);
+      this.panel(8, 142, 182, 32, 'rgba(10,7,14,0.88)', COLORS.goldDark);
       recent.forEach((line, i) => {
-        drawText(ctx, clip(namesForViewer(line, human), 23), 12, 137 + i * 10, i === recent.length - 1 ? COLORS.cream : COLORS.gray);
+        drawText(ctx, clip(logEntry(line, human), 29), 12, 145 + i * 10, i === recent.length - 1 ? COLORS.cream : COLORS.gray);
       });
     }
 
@@ -802,11 +851,11 @@ export class Renderer {
       const tw = 196;
       const tx = button && button.x + button.w / 2 < W / 2 ? 8 : W - tw - 8;
       const ty = 108;
-      this.panel(tx, ty, tw, 34, COLORS.paper, COLORS.goldDark, true);
+      this.panel(tx, ty + 44, tw, 34, COLORS.paper, COLORS.goldDark, true);
       ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(button && button.x + button.w / 2 < W / 2 ? tx + 94 : tx + 96, ty - 2, 6, 4);
+      ctx.fillRect(button && button.x + button.w / 2 < W / 2 ? tx + 94 : tx + 96, ty + 42, 6, 4);
       wrapText(hoveredAction.hint, 30).slice(0, 2).forEach((line, i) => {
-        drawText(ctx, line, tx + 7, ty + 6 + i * 12, COLORS.ink);
+        drawText(ctx, line, tx + 7, ty + 50 + i * 12, COLORS.ink);
       });
     }
 
@@ -843,10 +892,10 @@ export class Renderer {
       const card = hand[hoveredIndex];
       const tier = strengthTier(card);
       const x = Math.max(8, Math.min(W - 198, startX + hoveredIndex * spacing - 70));
-      this.panel(x, 148, 190, 40, COLORS.paper, COLORS.goldDark, true);
+      this.panel(x, 100, 190, 40, COLORS.paper, COLORS.goldDark, true);
       ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(x + 92, 146, 6, 4);
-      drawText(ctx, clip(cardLabel(card).toUpperCase(), 25), x + 8, 153, COLORS.ink);
+      ctx.fillRect(x + 92, 98, 6, 4);
+      drawText(ctx, clip(cardLabel(card).toUpperCase(), 25), x + 8, 105, COLORS.ink);
       ctx.fillStyle = tierColor(tier);
       ctx.fillRect(x + 174, 154, 8, 8);
       const rivalCard = shownPlayed[rival];
@@ -857,47 +906,38 @@ export class Renderer {
           : cardStrength(card) < cardStrength(rivalCard)
             ? 'PIERDE'
             : 'EMPATA';
-      drawText(ctx, `${tierShort(tier)}  ENV +${card.rank <= 7 ? card.rank : 0}  ${comparison}`, x + 8, 170, COLORS.ink);
-      rightText(ctx, `${tier}/14`, x + 182, 181, COLORS.gray);
+      drawText(ctx, `${tierShort(tier)}  ENV +${card.rank <= 7 ? card.rank : 0}  ${comparison}`, x + 8, 122, COLORS.ink);
+      rightText(ctx, `${tier}/14`, x + 182, 133, COLORS.gray);
     }
 
     // ---------- Cierres ----------
     if (state.phase === 'handEnd') {
-      this.dim(0.72, 40);
-      this.panel(104, 82, W - 208, 100, COLORS.woodDark, COLORS.gold, true);
       const last = state.lastHand;
       const won = last?.winner === human;
       const who = (player: PlayerIndex): string => player === human ? 'VOS' : rivalLabel;
-      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 88, won ? COLORS.green : COLORS.red, 2);
+      // El resumen va abajo: las cartas de la última ronda quedan a la vista.
+      this.panel(98, 186, W - 196, 78, COLORS.woodDark, COLORS.gold, true);
+      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 191, won ? COLORS.green : COLORS.red, 2);
       if (last?.envido) {
-        drawTextCentered(
-          ctx,
-          `ENVIDO ${who(last.envido.winner)} +${last.envido.prize} (${last.envido.score})`,
-          W / 2,
-          110,
-          COLORS.gold,
-        );
+        drawTextCentered(ctx, `ENVIDO ${who(last.envido.winner)} +${last.envido.prize} (${last.envido.score})`, W / 2, 210, COLORS.gold);
         const cards = last.envido.cards.map((card) => cardLabel(card)).join(' y ');
-        drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 122, COLORS.gray);
+        drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 222, COLORS.gray);
       }
-      if (last?.truco) {
-        drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 136, COLORS.cream);
-      }
-      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 165, 153, 150, 21, '#277a4c', COLORS.white, 1, hover === 'action:nextHand'));
+      if (last?.truco) drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 234, COLORS.cream);
+      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 162, 244, 156, 20, '#277a4c', COLORS.white, 1, hover === 'action:nextHand'));
     }
 
     if (state.phase === 'gameEnd') {
-      this.dim(0.8, 32);
       const won = state.winner === human;
       for (let i = 0; i < 9; i++) {
         const sx = 90 + ((i * 61 + Math.floor(this.time * 19)) % 300);
         const sy = 70 + ((i * 37 + Math.floor(this.time * 13)) % 90);
         drawSparkle(ctx, sx, sy, i % 2 ? COLORS.gold : COLORS.pink);
       }
-      this.panel(110, 76, W - 220, 110, COLORS.woodDark, COLORS.gold, true);
-      drawTextCenteredShadow(ctx, won ? 'GANASTE' : 'PERDISTE', W / 2, 86, won ? COLORS.green : COLORS.red, 3);
-      drawTextCentered(ctx, `${state.scores[0]} - ${state.scores[1]}`, W / 2, 124, COLORS.cream, 2);
-      hits.push(this.button('action:restart', 'NUEVA PARTIDA', 150, 156, 180, 22, '#277a4c', COLORS.white, 2, hover === 'action:restart'));
+      this.panel(96, 186, W - 192, 78, COLORS.woodDark, COLORS.gold, true);
+      drawTextCenteredShadow(ctx, won ? 'GANASTE' : 'PERDISTE', W / 2, 191, won ? COLORS.green : COLORS.red, 2);
+      drawTextCentered(ctx, `${state.scores[0]} - ${state.scores[1]}`, W / 2, 216, COLORS.cream, 2);
+      hits.push(this.button('action:restart', 'NUEVA PARTIDA', 158, 244, 164, 20, '#277a4c', COLORS.white, 1, hover === 'action:restart'));
     }
 
     return hits;

@@ -79,12 +79,16 @@ export function envidoScore(hand: Card[]): EnvidoScore {
   return best;
 }
 
+/** Mano sin canto = 1, truco = 2, retruco = 3, vale cuatro = 4. */
 export function trucoPoints(level: TrucoLevel | 0): number {
-  return level === 0 ? 1 : level;
+  return level === 0 ? 1 : level + 1;
 }
 
-export function declinePoints(kind: 'truco' | 'envido', level: TrucoLevel | EnvidoLevel): number {
-  if (kind === 'envido') return level === 1 ? 1 : 2;
+/**
+ * Rechazar un canto entrega el escalón anterior:
+ * truco 1 / retruco 2 / vale cuatro 3 y envido 1 / real 2 / envido envido 3 / falta 4.
+ */
+export function declinePoints(_kind: 'truco' | 'envido', level: TrucoLevel | EnvidoLevel): number {
   return level;
 }
 

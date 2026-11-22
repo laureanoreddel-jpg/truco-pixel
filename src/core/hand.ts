@@ -124,19 +124,19 @@ export function envidoDecline(bids: EnvidoBid[]): number {
 }
 
 /**
- * Subas legales según el reglamento: cada canto debe subir, no repetir nivel.
- * «Envido envido» es el segundo «envido» (2 + 2 = 4); después se puede seguir
- * con real envido (7) o falta. Un real envido directo (o como respuesta) sólo
- * admite falta como revido. La falta es terminal y reemplaza la bolsa.
+ * Subas legales según los reglamentos de torneo (ARCAT / CASI): después de
+ * envido O real envido hay cinco respuestas (quiero, envido, real, falta, no
+ * quiero), y las mismas cinco se repiten tras responder con envido o real.
+ * «Envido envido» es el segundo «envido» (2 + 2 = 4) y, como establece la
+ * variante habitual, no se puede repetir una tercera vez. La falta es terminal
+ * y reemplaza la bolsa.
  */
 export function envidoRaisesFor(bids: EnvidoBid[]): EnvidoCall[] {
   if (bids.length === 0) return ['envido', 'real', 'falta'];
   const last = bids[bids.length - 1];
   if (last.call === 'falta') return [];
-  if (last.call === 'real') return ['falta'];
   const envidos = bids.filter((bid) => bid.call === 'envido').length;
-  if (envidos >= 2) return ['real', 'falta'];
-  return ['envido', 'real', 'falta'];
+  return envidos >= 2 ? ['real', 'falta'] : ['envido', 'real', 'falta'];
 }
 
 /** Cantidad de palabras «envido» cantadas hasta ahora. */

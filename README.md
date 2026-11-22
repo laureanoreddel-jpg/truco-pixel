@@ -12,6 +12,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] IA con tres niveles de dificultad y decisión por simulación ligera (perfiles de campaña con personalidad propia)
 - [x] Interfaz en primera persona 2D: mesa en perspectiva, rival sentado enfrente y cartas en profundidad
 - [x] Estética arcade de alto contraste: fondo casi negro, cartas crema y botones rojos/ámbar/verdes con borde negro y bisel
+- [x] Dock de acciones con submenú de ENVIDO: envido, envido envido, real envido, falta envido y respuestas con ayuda contextual
 - [x] Pantalla de juego minimalista: puntajes, rondas con color **y letra** (`G`/`P`/`=`), tooltips bajo demanda y sin paneles de texto
 - [x] Tooltip con puesto en la jerarquía, envido y comparación contra la carta del rival
 - [x] Botones agrupados en una barra, con los puntos exactos de cada canto y explicación al señalarlos

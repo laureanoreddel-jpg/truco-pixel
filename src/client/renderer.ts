@@ -1,7 +1,7 @@
 import type { Difficulty } from '../core/ai';
 import { cardLabel, cardStrength, envidoDecline, envidoScore, envidoWordCount, strengthTier, trucoPoints } from '../core/hand';
 import { isStoryUnlocked, STORY_OPPONENTS, type StoryOpponent } from '../core/story';
-import { namesForViewer, other, type Card, type GameAction, type GameState, type PlayerIndex } from '../core/types';
+import { namesForViewer, other, type Card, type GameAction, type GameState, type PlayerIndex, type Suit } from '../core/types';
 import {
   CARD_H,
   CARD_W,
@@ -10,7 +10,10 @@ import {
   drawBadge,
   drawButton,
   drawCard,
+  drawModernButton,
   drawPanel,
+  drawSoftPanel,
+  roundedRectPath,
   drawSparkle,
   drawSuit,
   drawText,
@@ -49,6 +52,8 @@ export interface GameView {
   taunt?: string;
   /** Aviso persistente cuando el rival online se desconecta. */
   disconnected?: boolean;
+  /** El submenú de cantos de envido está abierto. */
+  envidoOpen?: boolean;
 }
 
 /** Entrada de código de sala dibujada en el canvas (sin prompt del navegador). */
@@ -64,6 +69,21 @@ interface ActionDef {
   text: string;
   hint: string;
 }
+
+interface DockSlot {
+  id: string;
+  label: string;
+  color: string;
+  text: string;
+  icon?: Suit;
+  width: number;
+  action?: GameAction['type'];
+  openEnvido?: boolean;
+}
+
+const ENVIDO_ORDER: GameAction['type'][] = [
+  'callEnvido', 'callEnvidoEnvido', 'callRealEnvido', 'callFalta', 'acceptEnvido', 'declineEnvido',
+];
 
 const DIFFICULTIES: Difficulty[] = ['facil', 'medio', 'dificil'];
 
@@ -269,7 +289,7 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
       hint: 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
     },
     callRealEnvido: {
-      type: 'callRealEnvido', label: 'REAL +3', color: '#e0a91e', text: COLORS.shadow,
+      type: 'callRealEnvido', label: 'REAL ENVIDO +3', color: '#e0a91e', text: COLORS.shadow,
       hint: 'Sumás 3 a los tantos en juego. Sólo se puede subir a falta.',
     },
     callEnvidoEnvido: {
@@ -277,7 +297,7 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
       hint: 'Segundo envido: sumás 2 (4 en total). El rechazo da 2 puntos.',
     },
     callFalta: {
-      type: 'callFalta', label: `FALTA +${bid}`, color: '#d06a1a', text: COLORS.shadow,
+      type: 'callFalta', label: `FALTA ENVIDO +${bid}`, color: '#d06a1a', text: COLORS.shadow,
       hint: `Cantás ${bid}: lo que le falta a quien va ganando para ${state.targetScore}. Rechazo = ${rejectEnvido} para vos.`,
     },
     acceptEnvido: {
@@ -379,6 +399,170 @@ export class Renderer {
   ): HitBox {
     drawButton(this.ctx, label, x, y, w, h, { color, textColor, scale, hover: hovered });
     return { id, x, y, w, h };
+  }
+
+  private drawDockSlot(slot: DockSlot, x: number, y: number, h: number, hovered: boolean): HitBox {
+    const ctx = this.ctx;
+    drawModernButton(ctx, slot.label, x, y, slot.width, h, {
+      color: slot.color,
+      textColor: slot.text,
+      icon: slot.icon,
+      hover: hovered,
+      scale: 2,
+    });
+    if (slot.openEnvido) {
+      ctx.fillStyle = hovered ? COLORS.cream : COLORS.gold;
+      ctx.beginPath();
+      ctx.moveTo(x + slot.width - 15, y + 6);
+      ctx.lineTo(x + slot.width - 7, y + 6);
+      ctx.lineTo(x + slot.width - 11, y + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return { id: slot.id, x, y, w: slot.width, h };
+  }
+
+  private drawActionDock(
+    state: GameState,
+    view: GameView,
+    defs: Partial<Record<GameAction['type'], ActionDef>>,
+    available: Set<GameAction['type']>,
+  ): { hits: HitBox[]; slots: DockSlot[] } {
+    const ctx = this.ctx;
+    const W = this.width;
+    const dockY = 160;
+    const dockH = 40;
+    const buttonY = dockY + 6;
+    const buttonH = 28;
+    const gaps = 6;
+
+    drawSoftPanel(ctx, 8, dockY, W - 16, dockH, 'rgba(9, 7, 12, 0.94)', 'rgba(255, 201, 60, 0.28)', 8);
+    ctx.fillStyle = 'rgba(255, 201, 60, 0.28)';
+    ctx.fillRect(20, dockY + 1, W - 40, 1);
+
+    const slots: DockSlot[] = [];
+    const add = (
+      type: GameAction['type'],
+      label: string,
+      width: number,
+      icon?: Suit,
+    ): void => {
+      const def = defs[type];
+      if (!def || !available.has(type)) return;
+      slots.push({ id: `action:${type}`, label, color: def.color, text: def.text, width, icon, action: type });
+    };
+
+    if (state.phase === 'handEnd' || state.phase === 'gameEnd') {
+      const type = state.phase === 'handEnd' ? 'nextHand' : 'restart';
+      const def = defs[type];
+      if (def) {
+        slots.push({
+          id: `action:${type}`, label: def.label, color: def.color, text: def.text, width: 224, action: type,
+        });
+      }
+    } else if (state.pending?.kind === 'envido') {
+      add('acceptEnvido', 'QUIERO', 110);
+      add('declineEnvido', 'NO QUIERO', 118);
+      if (ENVIDO_ORDER.some((type) => type !== 'acceptEnvido' && type !== 'declineEnvido' && available.has(type))) {
+        slots.push({
+          id: 'ui:envido', label: 'ENVIDO', color: COLORS.gold, text: COLORS.ink,
+          width: 124, icon: 'oro', openEnvido: true,
+        });
+      }
+      add('fold', 'MAZO', 88, 'basto');
+    } else if (state.pending?.kind === 'truco') {
+      add('acceptTruco', 'QUIERO', 110);
+      add('declineTruco', 'NO QUIERO', 118);
+      if (available.has('raiseTruco')) add('raiseTruco', defs.raiseTruco?.label ?? 'SUBIR', 124, 'espada');
+      else if (available.has('callTruco')) add('callTruco', defs.callTruco?.label ?? 'TRUCO', 124, 'espada');
+      add('fold', 'MAZO', 88, 'basto');
+    } else {
+      if (available.has('callTruco')) add('callTruco', defs.callTruco?.label ?? 'TRUCO', 116, 'espada');
+      else if (available.has('raiseTruco')) add('raiseTruco', defs.raiseTruco?.label ?? 'SUBIR', 116, 'espada');
+      if (ENVIDO_ORDER.some((type) => available.has(type))) {
+        slots.push({
+          id: 'ui:envido', label: 'ENVIDO', color: COLORS.gold, text: COLORS.ink,
+          width: 126, icon: 'oro', openEnvido: true,
+        });
+      }
+      add('fold', 'MAZO', 88, 'basto');
+    }
+
+    const total = slots.reduce((sum, slot) => sum + slot.width, 0) + Math.max(0, slots.length - 1) * gaps;
+    let x = Math.round((W - total) / 2);
+    const hits: HitBox[] = [];
+    slots.forEach((slot) => {
+      hits.push(this.drawDockSlot(slot, x, buttonY, buttonH, view.hover === slot.id));
+      x += slot.width + gaps;
+    });
+    return { hits, slots };
+  }
+
+  private drawEnvidoMenu(
+    state: GameState,
+    view: GameView,
+    defs: Partial<Record<GameAction['type'], ActionDef>>,
+    available: Set<GameAction['type']>,
+    human: PlayerIndex,
+  ): HitBox[] {
+    const ctx = this.ctx;
+    const rows = ENVIDO_ORDER.filter((type) => available.has(type) && defs[type]);
+    if (rows.length === 0) return [];
+
+    const x = 104;
+    const w = this.width - 208;
+    const y = 8;
+    const titleH = 20;
+    const rowH = 18;
+    const footerH = 14;
+    const h = titleH + rows.length * rowH + footerH;
+    const hits: HitBox[] = [];
+
+    drawSoftPanel(ctx, x, y, w, h, 'rgba(11, 8, 14, 0.98)', 'rgba(255, 201, 60, 0.62)', 8);
+    ctx.fillStyle = 'rgba(255, 201, 60, 0.12)';
+    ctx.fillRect(x + 1, y + 1, w - 2, titleH - 1);
+    drawText(ctx, 'CANTOS DE ENVIDO', x + 12, y + 6, COLORS.gold);
+    rightText(ctx, `TU ENV ${envidoScore(state.hands[human]).points}`, x + w - 36, y + 6, COLORS.pink);
+
+    const closeId = 'ui:envido:close';
+    drawSoftPanel(ctx, x + w - 25, y + 3, 16, 14, 'rgba(0, 0, 0, 0.35)', 'rgba(255, 247, 230, 0.35)', 4);
+    drawTextCentered(ctx, 'X', x + w - 17, y + 6, COLORS.cream);
+    hits.push({ id: closeId, x: x + w - 25, y: y + 3, w: 16, h: 14 });
+
+    let hoveredType: GameAction['type'] | undefined;
+    rows.forEach((type, i) => {
+      const def = defs[type]!;
+      const ry = y + titleH + 2 + i * rowH;
+      const id = `action:${type}`;
+      const isHovered = view.hover === id;
+      if (isHovered) hoveredType = type;
+      roundedRectPath(ctx, x + 8, ry, w - 16, rowH - 2, 4);
+      ctx.fillStyle = isHovered ? 'rgba(255, 201, 60, 0.18)' : 'rgba(255, 255, 255, 0.04)';
+      ctx.fill();
+      ctx.fillStyle = def.color;
+      ctx.fillRect(x + 8, ry + 1, 3, rowH - 4);
+      drawSuit(ctx, 'oro', x + 18, ry + 5, 1, def.color);
+      drawText(ctx, def.label, x + 32, ry + 5, COLORS.cream);
+      const value = def.label.match(/\+(\d+)\s*$/)?.[1];
+      if (value) rightText(ctx, `+${value}`, x + w - 16, ry + 5, COLORS.gold);
+      hits.push({ id, x: x + 8, y: ry, w: w - 16, h: rowH - 2 });
+    });
+
+    const footerY = y + titleH + rows.length * rowH + 2;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.fillRect(x + 8, footerY, w - 16, footerH - 2);
+    const hint = hoveredType ? defs[hoveredType]?.hint ?? '' : 'TOCA UN CANTO O LA X PARA CERRAR';
+    drawText(ctx, clip(hint, Math.floor((w - 32) / 6)), x + 16, footerY + 3, COLORS.gray);
+
+    // Punta del globo, alineada con el botón ENVIDO del dock.
+    ctx.fillStyle = 'rgba(11, 8, 14, 0.98)';
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2 - 7, y + h - 1);
+    ctx.lineTo(x + w / 2 + 7, y + h - 1);
+    ctx.lineTo(x + w / 2, y + h + 7);
+    ctx.closePath();
+    ctx.fill();
+    return hits;
   }
 
   drawMenu(difficulty: Difficulty, hover: string | null = null, sound = true): HitBox[] {
@@ -733,14 +917,14 @@ export class Renderer {
     // Nunca se dibuja un dorso que el rival no jugó. Las cartas en juego son grandes
     // y llevan etiqueta: así se entiende de un vistazo qué tiró cada uno.
     if (rivalPlayed) {
-      this.scaledCard(rivalPlayed, 218, 72, 1, true, 0, undefined, strengthTier(rivalPlayed));
-      this.panel(196, 62, 46, 10, 'rgba(10,7,14,0.92)', COLORS.redDark);
-      drawTextCentered(ctx, `${rivalLabel.slice(0, 7)} R${Math.min(state.round, 2) + 1}`, 219, 63, COLORS.cream);
+      this.scaledCard(rivalPlayed, 220, 62, 0.9, true, 0, undefined, strengthTier(rivalPlayed));
+      this.panel(198, 52, 46, 10, 'rgba(10,7,14,0.92)', COLORS.redDark);
+      drawTextCentered(ctx, `${rivalLabel.slice(0, 7)} R${Math.min(state.round, 2) + 1}`, 221, 53, COLORS.cream);
     }
     if (humanPlayed) {
-      this.scaledCard(humanPlayed, 218, 122, 1, true, 0, undefined, strengthTier(humanPlayed));
-      this.panel(196, 112, 46, 10, 'rgba(10,7,14,0.92)', COLORS.green);
-      drawTextCentered(ctx, `VOS R${Math.min(state.round, 2) + 1}`, 219, 113, COLORS.cream);
+      this.scaledCard(humanPlayed, 220, 104, 0.9, true, 0, undefined, strengthTier(humanPlayed));
+      this.panel(198, 94, 46, 10, 'rgba(10,7,14,0.92)', COLORS.green);
+      drawTextCentered(ctx, `VOS R${Math.min(state.round, 2) + 1}`, 221, 95, COLORS.cream);
     }
     // El rival sigue presente mientras se juega: gesto, nombre y color de campaña.
     if (state.phase === 'playing') {
@@ -764,10 +948,10 @@ export class Renderer {
             : envidoWordCount(p.bids) >= 2
               ? '¿ENVIDO ENVIDO?'
               : '¿ENVIDO?';
-      this.panel(166, 58, 148, 18, 'rgba(10,7,14,0.94)', COLORS.gold);
-      drawTextCenteredShadow(ctx, label, W / 2, 62, COLORS.gold, 2);
+      drawSoftPanel(ctx, 166, 136, 148, 18, 'rgba(10,7,14,0.96)', 'rgba(255, 201, 60, 0.7)', 5);
+      drawTextCenteredShadow(ctx, label, W / 2, 140, COLORS.gold, 2);
     } else if (view.notice) {
-      drawTextCentered(ctx, clip(view.notice, 34), W / 2, 62, COLORS.pink);
+      drawTextCentered(ctx, clip(view.notice, 34), W / 2, 140, COLORS.pink);
     }
 
     if (view.taunt) {
@@ -812,51 +996,31 @@ export class Renderer {
     drawSuit(ctx, 'oro', 13, 244, 1, COLORS.pink);
     drawText(ctx, `${envidoScore(state.hands[human]).points}`, 25, 243, COLORS.pink, 2);
 
-    // ---------- Botones: una barra agrupada, lejos de las cartas ----------
-    const groupOrder: GameAction['type'][] = [
-      'acceptEnvido', 'declineEnvido', 'callEnvido', 'callEnvidoEnvido', 'callRealEnvido', 'callFalta',
-      'acceptTruco', 'declineTruco', 'callTruco', 'raiseTruco',
-      'fold', 'nextHand', 'restart',
-    ];
-    const labels: ActionDef[] = [];
-    for (const action of view.legal) {
-      if (action.type === 'playCard') continue;
-      // El cierre ya dibuja su propio botón dentro del resumen.
-      if (state.phase === 'handEnd' && action.type === 'nextHand') continue;
-      if (state.phase === 'gameEnd' && action.type === 'restart') continue;
-      const def = defs[action.type];
-      if (def && !labels.some((l) => l.type === def.type)) labels.push(def);
+    // ---------- Dock de acciones y submenú de envido ----------
+    const available = new Set(view.legal.map((action) => action.type));
+    if (view.envidoOpen) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+      ctx.fillRect(0, 0, W, 158);
     }
-    labels.sort((a, b) => groupOrder.indexOf(a.type) - groupOrder.indexOf(b.type));
-    if (labels.length > 0) {
-      const w = 112;
-      const gap = 6;
-      const rows = labels.length <= 4 ? 1 : 2;
-      const perRow = Math.ceil(labels.length / rows);
-      labels.forEach((def, i) => {
-        const row = Math.floor(i / perRow);
-        const inRow = Math.min(perRow, labels.length - row * perRow);
-        const total = inRow * w + (inRow - 1) * gap;
-        const x = Math.round((W - total) / 2) + (i % perRow) * (w + gap);
-        const y = rows === 1 ? 182 : 160 + row * 22;
-        const id = `action:${def.type}`;
-        hits.push(this.button(id, def.label, x, y, w, 20, def.color, def.text, 1, hover === id));
-      });
+    if (view.envidoOpen) {
+      hits.push(...this.drawEnvidoMenu(state, view, defs, available, human));
     }
+    const dock = this.drawActionDock(state, view, defs, available);
+    hits.push(...dock.hits);
 
-    // ---------- Ayuda al señalar (o con pulsación larga en el celular) ----------
-    const hoveredAction = labels.find((def) => hover === `action:${def.type}`);
-    if (hoveredAction) {
-      const button = hits.find((h) => h.id === `action:${hoveredAction.type}`);
-      const tw = 196;
-      const tx = button && button.x + button.w / 2 < W / 2 ? 8 : W - tw - 8;
-      const ty = 108;
-      this.panel(tx, ty + 44, tw, 34, COLORS.paper, COLORS.goldDark, true);
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(button && button.x + button.w / 2 < W / 2 ? tx + 94 : tx + 96, ty + 42, 6, 4);
-      wrapText(hoveredAction.hint, 30).slice(0, 2).forEach((line, i) => {
-        drawText(ctx, line, tx + 7, ty + 50 + i * 12, COLORS.ink);
-      });
+    // Ayuda breve bajo el cursor; el submenú ya muestra la suya propia.
+    if (!view.envidoOpen) {
+      const hoveredSlot = dock.slots.find((slot) => hover === slot.id);
+      const hoveredType = hoveredSlot?.action;
+      const hint = hoveredSlot?.openEnvido
+        ? 'Desplegá todos los cantos de envido.'
+        : hoveredType ? defs[hoveredType]?.hint : undefined;
+      if (hint) {
+        const tw = 204;
+        const tx = Math.round((W - tw) / 2);
+        drawSoftPanel(ctx, tx, 108, tw, 22, COLORS.paper, 'rgba(255, 201, 60, 0.8)', 5);
+        drawText(ctx, clip(hint, 31), tx + 9, 114, COLORS.ink);
+      }
     }
 
     if (hover === 'game:rounds') {
@@ -915,16 +1079,15 @@ export class Renderer {
       const last = state.lastHand;
       const won = last?.winner === human;
       const who = (player: PlayerIndex): string => player === human ? 'VOS' : rivalLabel;
-      // El resumen va abajo: las cartas de la última ronda quedan a la vista.
-      this.panel(98, 186, W - 196, 78, COLORS.woodDark, COLORS.gold, true);
-      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 191, won ? COLORS.green : COLORS.red, 2);
+      // Resumen arriba: las cartas de la última ronda y tus cartas quedan a la vista.
+      drawSoftPanel(ctx, 98, 70, W - 196, 82, 'rgba(9, 7, 12, 0.96)', 'rgba(255, 201, 60, 0.55)', 8);
+      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 78, won ? COLORS.green : COLORS.red, 2);
       if (last?.envido) {
-        drawTextCentered(ctx, `ENVIDO ${who(last.envido.winner)} +${last.envido.prize} (${last.envido.score})`, W / 2, 210, COLORS.gold);
+        drawTextCentered(ctx, `ENVIDO ${who(last.envido.winner)} +${last.envido.prize} (${last.envido.score})`, W / 2, 99, COLORS.gold);
         const cards = last.envido.cards.map((card) => cardLabel(card)).join(' y ');
-        drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 222, COLORS.gray);
+        drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 112, COLORS.gray);
       }
-      if (last?.truco) drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 234, COLORS.cream);
-      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 162, 244, 156, 20, COLORS.green, COLORS.shadow, 1, hover === 'action:nextHand'));
+      if (last?.truco) drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 126, COLORS.cream);
     }
 
     if (state.phase === 'gameEnd') {
@@ -934,10 +1097,10 @@ export class Renderer {
         const sy = 70 + ((i * 37 + Math.floor(this.time * 13)) % 90);
         drawSparkle(ctx, sx, sy, i % 2 ? COLORS.gold : COLORS.pink);
       }
-      this.panel(96, 186, W - 192, 78, COLORS.woodDark, COLORS.gold, true);
-      drawTextCenteredShadow(ctx, won ? 'GANASTE' : 'PERDISTE', W / 2, 191, won ? COLORS.green : COLORS.red, 2);
-      drawTextCentered(ctx, `${state.scores[0]} - ${state.scores[1]}`, W / 2, 216, COLORS.cream, 2);
-      hits.push(this.button('action:restart', 'NUEVA PARTIDA', 158, 244, 164, 20, COLORS.green, COLORS.shadow, 1, hover === 'action:restart'));
+      drawSoftPanel(ctx, 96, 70, W - 192, 82, 'rgba(9, 7, 12, 0.96)', 'rgba(255, 201, 60, 0.55)', 8);
+      drawTextCenteredShadow(ctx, won ? 'GANASTE' : 'PERDISTE', W / 2, 78, won ? COLORS.green : COLORS.red, 2);
+      drawTextCentered(ctx, `${state.scores[0]} - ${state.scores[1]}`, W / 2, 104, COLORS.cream, 3);
+      drawTextCentered(ctx, 'TOCÁ NUEVA PARTIDA PARA VOLVER', W / 2, 132, COLORS.gray);
     }
 
     return hits;

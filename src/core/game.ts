@@ -154,7 +154,7 @@ export class TrucoGame {
     return this.state.envidoStatus === 'called' && !this.acceptedTruco(_player);
   }
 
-  private envidoActions(player: PlayerIndex, bids: EnvidoBid[]): GameAction[] {
+  private envidoActions(bids: EnvidoBid[]): GameAction[] {
     const calls: EnvidoCall[] = bids.length === 0
       ? ['envido', 'real', 'falta']
       : envidoRaisesFor(bids);
@@ -220,11 +220,11 @@ export class TrucoGame {
         const actions: GameAction[] = [{ type: 'acceptTruco' }, { type: 'declineTruco' }];
         if (s.pending.level < 3) actions.push({ type: 'raiseTruco' });
         // El rival puede exigir que el envido se resuelva antes que el truco.
-        if (this.canOpenEnvido(player)) actions.push(...this.envidoActions(player, []));
+        if (this.canOpenEnvido(player)) actions.push(...this.envidoActions([]));
         return actions;
       }
       const actions: GameAction[] = [{ type: 'acceptEnvido' }, { type: 'declineEnvido' }];
-      if (this.canRaiseEnvido(player)) actions.push(...this.envidoActions(player, s.pending.bids));
+      if (this.canRaiseEnvido(player)) actions.push(...this.envidoActions(s.pending.bids));
       return actions;
     }
 
@@ -235,7 +235,7 @@ export class TrucoGame {
     // Retruco/vale cuatro los puede cantar quien recibió el canto, también después de aceptar.
     else if (s.trucoLevel < 3 && s.trucoCaller !== player) actions.push({ type: 'raiseTruco' });
     actions.push({ type: 'fold' });
-    if (this.canOpenEnvido(player)) actions.push(...this.envidoActions(player, []));
+    if (this.canOpenEnvido(player)) actions.push(...this.envidoActions([]));
     return actions;
   }
 
@@ -427,15 +427,20 @@ export class TrucoGame {
       truco: { winner: handWinner, points: handPoints },
     };
     this.checkGameEnd();
+    let handPointsAwarded = false;
     if (s.phase !== 'gameEnd') {
       this.award(handWinner, handPoints);
+      handPointsAwarded = true;
       this.checkGameEnd();
     }
     if (s.phase !== 'gameEnd') s.phase = 'handEnd';
 
     const parts: string[] = [];
     if (envido) parts.push(`envido: ${PLAYER_NAMES[envido.winner]} +${envido.prize}`);
-    parts.push(`${reason}: ${PLAYER_NAMES[handWinner]} +${handPoints}`);
+    // Si el envido definió la partida, los puntos de la mano no se anotan:
+    // anunciarlos sería engañoso.
+    if (handPointsAwarded) parts.push(`${reason}: ${PLAYER_NAMES[handWinner]} +${handPoints}`);
+    if (s.phase === 'gameEnd' && s.winner !== null) parts.push(`partida: gana ${PLAYER_NAMES[s.winner]}`);
     s.lastEvent = parts.join(' · ');
     this.log(s.lastEvent);
   }

@@ -532,6 +532,7 @@ function handleHit(id: string): void {
   if (id === 'story:play') return openStoryIntro(storyIndex);
   if (id === 'story:start') return startStoryGame(storyIndex);
   if (id === 'story:map') return goStoryMap();
+  if (id === 'story:back') return goMenu();
   if (id === 'story:retry') return openStoryIntro(storyIndex);
   if (id === 'story:next') return openStoryIntro(Math.min(STORY_OPPONENTS.length - 1, storyIndex + 1));
   if (id === 'menu:help' || id === 'game:help') {

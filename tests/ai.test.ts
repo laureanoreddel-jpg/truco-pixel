@@ -182,33 +182,28 @@ describe('decisiones con manos fuertes', () => {
 });
 
 describe('cantos de envido legales', () => {
-  it('no canta envido después de haberse jugado una carta', () => {
+  it('el pie puede cantar envido después de que tiró el mano', () => {
+    const game = setup([
+      [card(1, 'espada'), card(2, 'oro'), card(3, 'copa')],
+      [card(7, 'oro'), card(6, 'oro'), card(5, 'copa')],
+    ]);
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    for (let seed = 1; seed <= 10; seed++) {
+      const action = chooseAiAction(game, 1, 'dificil', mulberry32(seed));
+      expect(game.legalActions(1).some((legal) => legal.type === action.type)).toBe(true);
+    }
+  });
+
+  it('no canta envido cuando ya tiró su propia carta ni tras un rechazo', () => {
     const game = setup([
       [card(7, 'oro'), card(6, 'oro'), card(3, 'copa')],
       [card(1, 'espada'), card(2, 'basto'), card(5, 'copa')],
     ]);
     game.dispatch(0, { type: 'playCard', cardId: card(7, 'oro').id });
-    for (let seed = 1; seed <= 10; seed++) {
-      const action = chooseAiAction(game, 1, 'dificil', mulberry32(seed));
-      expect(ENVIDO_CALLS).not.toContain(action.type);
-    }
     game.dispatch(1, { type: 'playCard', cardId: card(1, 'espada').id });
-    for (let seed = 1; seed <= 10; seed++) {
-      const action = chooseAiAction(game, 0, 'dificil', mulberry32(seed));
-      expect(ENVIDO_CALLS).not.toContain(action.type);
-    }
-  });
-
-  it('no canta falta empatado ni vuelve a cantar envido tras un rechazo', () => {
-    const tied = setup([
-      [card(7, 'oro'), card(6, 'oro'), card(3, 'copa')],
-      [card(1, 'espada'), card(2, 'basto'), card(5, 'copa')],
-    ]);
-    tied.state.scores = [5, 5];
     const greedy = makeStoryProfile('dificil', { bluff: 1, envidoBias: 1 });
     for (let seed = 1; seed <= 10; seed++) {
-      const action = chooseAiAction(tied, 0, greedy, mulberry32(seed));
-      expect(action.type).not.toBe('callFalta');
+      expect(ENVIDO_CALLS).not.toContain(chooseAiAction(game, 0, greedy, mulberry32(seed)).type);
     }
 
     const declined = setup([
@@ -218,8 +213,16 @@ describe('cantos de envido legales', () => {
     declined.dispatch(0, { type: 'callEnvido' });
     declined.dispatch(1, { type: 'declineEnvido' });
     for (let seed = 1; seed <= 10; seed++) {
-      const action = chooseAiAction(declined, 0, greedy, mulberry32(seed));
-      expect(ENVIDO_CALLS).not.toContain(action.type);
+      expect(ENVIDO_CALLS).not.toContain(chooseAiAction(declined, 0, greedy, mulberry32(seed)).type);
     }
+  });
+
+  it('puede cantar falta con el tanteador empatado', () => {
+    const tied = setup([
+      [card(7, 'oro'), card(6, 'oro'), card(3, 'copa')],
+      [card(1, 'espada'), card(2, 'basto'), card(5, 'copa')],
+    ]);
+    tied.state.scores = [5, 5];
+    expect(tied.legalActions(0).map((a) => a.type)).toContain('callFalta');
   });
 });

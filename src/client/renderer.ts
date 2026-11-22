@@ -161,7 +161,8 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
       'PRIMER CANTO RECHAZADO = 1',
       'REAL DIRECTO RECHAZADO = 1',
       'ENV + ENV RECHAZADO = 2',
-      'DESPUES DEL REAL SOLO FALTA',
+      'REAL + ENV RECHAZADO = 3',
+      'REAL: ENVIDO, REAL O FALTA',
       'FALTA: LO QUE LE FALTA AL LIDER',
       'EMPATADOS A 0: VALEN 15',
       'TE CANTAN ENVIDO Y YA TIRASTE?',
@@ -287,12 +288,20 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
       color: '#9e1f28', text: COLORS.white, hint: 'No aceptás: el rival se lleva esos puntos y cierra la mano.',
     },
     callEnvido: {
-      type: 'callEnvido', label: 'ENVIDO +2', color: '#d99a15', text: COLORS.shadow,
-      hint: 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
+      type: 'callEnvido',
+      label: p?.kind === 'envido' ? `ENVIDO +2 (VA ${p.potAfter + 2})` : 'ENVIDO +2',
+      color: '#d99a15', text: COLORS.shadow,
+      hint: p?.kind === 'envido'
+        ? `Aceptás el canto anterior y subís 2: la bolsa queda en ${p.potAfter + 2}.`
+        : 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
     },
     callRealEnvido: {
-      type: 'callRealEnvido', label: 'REAL ENVIDO +3', color: '#e0a91e', text: COLORS.shadow,
-      hint: 'Sumás 3 a los tantos en juego. Sólo se puede subir a falta.',
+      type: 'callRealEnvido',
+      label: p?.kind === 'envido' ? `REAL ENVIDO +3 (VA ${p.potAfter + 3})` : 'REAL ENVIDO +3',
+      color: '#e0a91e', text: COLORS.shadow,
+      hint: p?.kind === 'envido'
+        ? `Aceptás lo cantado y subís 3: la bolsa queda en ${p.potAfter + 3}.`
+        : 'Sumás 3 a los tantos en juego. Podés seguir con envido, real o falta.',
     },
     callEnvidoEnvido: {
       type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#ffc93c', text: COLORS.shadow,
@@ -494,6 +503,11 @@ export class Renderer {
       add('fold', 'MAZO', 88, 'basto');
     }
 
+    if (slots.length === 0) {
+      drawTextCentered(ctx, state.pending ? 'ESPERANDO RESPUESTA...' : 'TURNO DEL RIVAL...',
+        W / 2, buttonY + 9, COLORS.gray);
+    }
+
     const total = slots.reduce((sum, slot) => sum + slot.width, 0) + Math.max(0, slots.length - 1) * gaps;
     let x = Math.round((W - total) / 2);
     const hits: HitBox[] = [];
@@ -549,8 +563,6 @@ export class Renderer {
       ctx.fillRect(x + 8, ry + 1, 3, rowH - 4);
       drawSuit(ctx, 'oro', x + 18, ry + 5, 1, def.color);
       drawText(ctx, def.label, x + 32, ry + 5, COLORS.cream);
-      const value = def.label.match(/\+(\d+)\s*$/)?.[1];
-      if (value) rightText(ctx, `+${value}`, x + w - 16, ry + 5, COLORS.gold);
       hits.push({ id, x: x + 8, y: ry, w: w - 16, h: rowH - 2 });
     });
 
@@ -804,7 +816,7 @@ export class Renderer {
       if (line) drawText(ctx, line, 248, 44 + i * 12, i === 0 ? COLORS.gold : COLORS.cream);
     });
 
-    drawTextCentered(ctx, `${current + 1} / ${HELP_PAGES.length}`, W / 2, 240, COLORS.gray);
+    drawTextCentered(ctx, `PAGINA ${current + 1} / ${HELP_PAGES.length}`, W / 2, 216, COLORS.gray);
     const hits: HitBox[] = [];
     hits.push(this.button('help:prev', '< ANT', 28, 228, 62, 20, COLORS.panelLight, COLORS.cream, 1, hover === 'help:prev'));
     hits.push(this.button('help:back', 'VOLVER', 199, 228, 82, 20, COLORS.redDark, COLORS.white, 1, hover === 'help:back'));
@@ -902,6 +914,14 @@ export class Renderer {
     this.panel(W - 24, 32, 16, 16, hover === 'game:menu' ? COLORS.redDark : COLORS.panel, COLORS.gold);
     drawTextCentered(ctx, 'X', W - 16, 36, COLORS.cream);
 
+    // Aviso de ronda: se dibuja antes que las cartas para no taparlas.
+    if (this.roundFlash && performance.now() < this.roundFlash.until && !state.pending) {
+      this.panel(166, 106, 148, 16, 'rgba(10,7,14,0.94)', COLORS.green);
+      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 110, COLORS.cream, 1);
+    } else if (this.roundFlash && performance.now() >= this.roundFlash.until) {
+      this.roundFlash = null;
+    }
+
     // ---------- Cartas sobre el fieltro, en profundidad ----------
     const shownRound = Math.min(state.round, 2);
     const shownPlayed = state.played[shownRound];
@@ -913,19 +933,21 @@ export class Renderer {
       const round = state.played[r];
       if (round[rival]) {
         this.scaledCard(round[rival]!, 14, 80 + r * 30, 0.65, false, 0, undefined, strengthTier(round[rival]!));
-        drawText(ctx, `R${r + 1}`, 14, 70 + r * 30, COLORS.red);
+        drawText(ctx, `R${r + 1} ${shortCard(round[rival]!)}`, 14, 70 + r * 30, COLORS.red);
       }
       if (round[human]) {
         this.scaledCard(round[human]!, W - 43, 80 + r * 30, 0.65, false, 0, undefined, strengthTier(round[human]!));
-        drawText(ctx, `R${r + 1}`, W - 43, 70 + r * 30, COLORS.green);
+        drawText(ctx, `R${r + 1} ${shortCard(round[human]!)}`, W - 43, 70 + r * 30, COLORS.green);
       }
     }
     // Nunca se dibuja un dorso que el rival no jugó. Las cartas en juego son grandes
     // y llevan etiqueta: así se entiende de un vistazo qué tiró cada uno.
     if (rivalPlayed) {
       this.scaledCard(rivalPlayed, 220, 62, 0.9, true, 0, undefined, strengthTier(rivalPlayed));
-      this.panel(198, 52, 46, 10, 'rgba(10,7,14,0.92)', COLORS.redDark);
-      drawTextCentered(ctx, `${rivalLabel.slice(0, 7)} R${Math.min(state.round, 2) + 1}`, 221, 53, COLORS.cream);
+      const tag = `${rivalLabel.slice(0, 7)} R${Math.min(state.round, 2) + 1}`;
+      const tagW = Math.max(46, textWidth(tag) + 8);
+      this.panel(221 - tagW / 2, 52, tagW, 10, 'rgba(10,7,14,0.92)', COLORS.redDark);
+      drawTextCentered(ctx, tag, 221, 53, COLORS.cream);
     }
     if (humanPlayed) {
       this.scaledCard(humanPlayed, 220, 104, 0.9, true, 0, undefined, strengthTier(humanPlayed));
@@ -972,28 +994,17 @@ export class Renderer {
       });
     }
 
-    if (view.disconnected) {
-      this.panel(166, 104, 148, 16, COLORS.redDark, COLORS.gold);
-      drawTextCentered(ctx, 'RIVAL DESCONECTADO', W / 2, 108, COLORS.white);
-    }
-    // La ronda se anuncia sin tapar el cartel de canto ni las cartas.
-    if (this.roundFlash && performance.now() < this.roundFlash.until && !state.pending) {
-      this.panel(166, 106, 148, 16, 'rgba(10,7,14,0.94)', COLORS.green);
-      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 110, COLORS.cream, 1);
-    } else if (this.roundFlash && performance.now() >= this.roundFlash.until) {
-      this.roundFlash = null;
-    }
+    if (view.disconnected) rightText(ctx, 'DESCONECTADO', W - 30, 32, COLORS.red);
 
-    // Ronda explícita bajo el marcador, como promete la ayuda.
+    // Ronda explícita bajo el marcador; el detalle R1/R2/R3 vive en el tooltip.
     drawTextCentered(ctx, `RONDA ${Math.min(state.round + 1, 3)}/3`, W / 2, 53, COLORS.cream);
-    for (let r = 0; r < 3; r++) drawTextCentered(ctx, `R${r + 1}`, 234.5 + r * 10, 54, COLORS.gray);
 
-    // Historial breve: lo cantado y jugado no se pierde al pasar de ronda.
-    const recent = state.log.slice(-3);
+    // Historial breve: dos líneas por encima del dock, sin chocar con el cartel de canto.
+    const recent = state.log.slice(-2);
     if (recent.length > 0) {
-      this.panel(8, 142, 182, 32, 'rgba(10,7,14,0.88)', COLORS.goldDark);
+      this.panel(8, 136, 150, 22, 'rgba(10,7,14,0.88)', COLORS.goldDark);
       recent.forEach((line, i) => {
-        drawText(ctx, clip(logEntry(line, human), 29), 12, 145 + i * 10, i === recent.length - 1 ? COLORS.cream : COLORS.gray);
+        drawText(ctx, clip(logEntry(line, human), 22), 12, 138 + i * 10, i === recent.length - 1 ? COLORS.cream : COLORS.gray);
       });
     }
 
@@ -1039,7 +1050,7 @@ export class Renderer {
       this.panel(8, 58, 150, 40, COLORS.paper, COLORS.goldDark, true);
       drawText(ctx, `R1 ${outcome(0)}   R2 ${outcome(1)}`, 14, 63, COLORS.ink);
       drawText(ctx, `R3 ${outcome(2)}   MANO ${state.mano === human ? 'VOS' : 'RIVAL'}`, 14, 76, COLORS.ink);
-      drawText(ctx, 'PARDA: NO SUMA NADIE', 14, 88, COLORS.gray);
+      drawText(ctx, 'PARDA: NO SUMA NADIE', 14, 88, COLORS.mutedInk);
     }
 
     // ---------- Tus cartas, abanicadas sobre el borde de la mesa ----------
@@ -1052,7 +1063,7 @@ export class Renderer {
       const x = startX + i * spacing;
       const canPlay = view.legal.some((a) => a.type === 'playCard' && a.cardId === card.id);
       const isHover = i === hoveredIndex;
-      const y = 208 + (i === 1 ? -8 : 2) - (isHover && canPlay ? 10 : 0);
+      const y = 206 + (i === 1 ? -8 : -2) - (isHover && canPlay ? 10 : 0);
       this.handCard(card, x, y, angles[i] ?? 0, canPlay || isHover, i);
       if (canPlay) hits.push({ id: `card:${card.id}`, x: x - 4, y: y - 10, w: CARD_W + 8, h: CARD_H + 12 });
     });
@@ -1077,7 +1088,7 @@ export class Renderer {
             ? 'PIERDE'
             : 'EMPATA';
       drawText(ctx, `${tierShort(tier)}  ENV +${card.rank <= 7 ? card.rank : 0}  ${comparison}`, x + 8, 122, COLORS.ink);
-      rightText(ctx, `${tier}/14`, x + 182, 133, COLORS.gray);
+      rightText(ctx, `${tier}/14`, x + 182, 133, COLORS.mutedInk);
     }
 
     // ---------- Cierres ----------

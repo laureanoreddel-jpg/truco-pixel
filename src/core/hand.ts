@@ -46,6 +46,14 @@ export function compareCards(a: Card, b: Card): number {
   return cardStrength(a) - cardStrength(b);
 }
 
+const TIER_VALUES = [190, 185, 180, 175, 170, 165, 160, 150, 140, 130, 120, 110, 100, 90];
+
+/** Puesto en la jerarquía: 1 = la carta más fuerte, 14 = la más débil. */
+export function strengthTier(card: Card): number {
+  const index = TIER_VALUES.indexOf(cardStrength(card));
+  return index < 0 ? 14 : index + 1;
+}
+
 export interface EnvidoScore {
   points: number;
   pair: [Card, Card] | null;

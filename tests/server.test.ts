@@ -264,6 +264,7 @@ describe('archivos estáticos', () => {
     expect(contentTypeFor('style.css')).toContain('text/css');
     expect(contentTypeFor('unknown.bin')).toBe('application/octet-stream');
     expect(cacheControlFor('index.html')).toBe('no-cache');
+    expect(cacheControlFor('manifest.webmanifest')).toBe('no-cache');
     expect(cacheControlFor('assets/main.js')).toBe('no-cache');
     expect(cacheControlFor('assets/index-abc12345.js')).toBe('public, max-age=31536000, immutable');
   });

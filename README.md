@@ -3,6 +3,8 @@
 Juego de **truco argentino simplificado** en 2D pixel art, 100% en TypeScript y Canvas.
 Incluye partida contra IA y modo multijugador online con salas.
 
+**Jugá online:** https://truco-pixel.onrender.com
+
 ## Estado
 
 - [x] Motor de reglas compartido (cliente y servidor)

@@ -1,4 +1,4 @@
-import type { Card, EnvidoLevel, PlayerIndex, Suit, TrucoLevel } from './types';
+import type { Card, EnvidoBid, EnvidoCall, EnvidoLevel, PlayerIndex, Suit, TrucoLevel } from './types';
 
 export const SUIT_LABELS: Record<Suit, string> = {
   espada: 'espada',
@@ -84,12 +84,77 @@ export function trucoPoints(level: TrucoLevel | 0): number {
   return level === 0 ? 1 : level + 1;
 }
 
+/** Rechazar truco entrega el escalón anterior (1, 2 o 3). */
+export function declinePoints(kind: 'truco' | 'envido', level: TrucoLevel | EnvidoLevel): number {
+  if (kind === 'truco') return level;
+  // Para envido se usa `envidoDecline` con la cadena completa; estos valores
+  // son sólo el caso de un canto único (y el de falta directa).
+  return level === 3 ? 2 : 1;
+}
+
+export const ENVIDO_CALL_NAMES: Record<EnvidoCall, string> = {
+  envido: 'ENVIDO',
+  real: 'REAL ENVIDO',
+  doble: 'ENVIDO ENVIDO',
+  falta: 'FALTA ENVIDO',
+};
+
+export function envidoLevelForCall(call: EnvidoCall): EnvidoLevel {
+  return call === 'envido' ? 1 : call === 'real' ? 2 : call === 'doble' ? 3 : 4;
+}
+
+/** Cada palabra "envido" vale 2; el real vale 3; la falta reemplaza la bolsa. */
+export function envidoCallValue(call: EnvidoCall, scores: [number, number], targetScore: number): number {
+  if (call === 'falta') return Math.max(1, targetScore - Math.max(scores[0], scores[1]));
+  return call === 'real' ? 3 : 2;
+}
+
+/** Total de la bolsa: se suman los cantos, excepto la falta, que reemplaza. */
+export function envidoPotForBids(bids: EnvidoBid[]): number {
+  const last = bids[bids.length - 1];
+  if (last?.call === 'falta') return last.value;
+  return bids.reduce((total, bid) => total + bid.value, 0);
+}
+
+/** No quiero = lo que valía la cadena antes del último canto, o 1 si era el primero. */
+export function envidoDecline(bids: EnvidoBid[]): number {
+  if (bids.length <= 1) return 1;
+  const before = bids.slice(0, -1);
+  return Math.max(1, envidoPotForBids(before));
+}
+
 /**
- * Rechazar un canto entrega el escalón anterior:
- * truco 1 / retruco 2 / vale cuatro 3 y envido 1 / real 2 / envido envido 3 / falta 4.
+ * Subas legales. «Envido envido» no es un escalón: es un segundo canto de
+ * «envido» (2 + 2 = 4). Después del real o del segundo envido sólo queda falta.
  */
-export function declinePoints(_kind: 'truco' | 'envido', level: TrucoLevel | EnvidoLevel): number {
-  return level;
+export function envidoRaisesFor(bids: EnvidoBid[]): EnvidoCall[] {
+  if (bids.length === 0) return ['envido', 'real', 'falta'];
+  const last = bids[bids.length - 1];
+  if (last.call === 'falta') return [];
+  const envidos = bids.filter((bid) => bid.call === 'envido').length;
+  if (envidos >= 2 || last.call === 'real') return ['falta'];
+  return ['envido', 'real', 'falta'];
+}
+
+/** Cantidad de palabras «envido» cantadas hasta ahora. */
+export function envidoWordCount(bids: EnvidoBid[]): number {
+  return bids.filter((bid) => bid.call === 'envido').length;
+}
+
+/** Convierte un canto en la acción pública equivalente. */
+export function envidoActionForCall(call: EnvidoCall): Extract<import('./types').GameAction, { type: 'callEnvido' | 'callRealEnvido' | 'callEnvidoEnvido' | 'callFalta' }> {
+  if (call === 'envido') return { type: 'callEnvido' };
+  if (call === 'real') return { type: 'callRealEnvido' };
+  if (call === 'doble') return { type: 'callEnvidoEnvido' };
+  return { type: 'callFalta' };
+}
+
+export function callForEnvidoAction(type: string): EnvidoCall | null {
+  if (type === 'callEnvido') return 'envido';
+  if (type === 'callRealEnvido') return 'real';
+  if (type === 'callEnvidoEnvido') return 'doble';
+  if (type === 'callFalta') return 'falta';
+  return null;
 }
 
 export function cardLabel(card: Card): string {
@@ -106,4 +171,8 @@ export function strongestCards(hand: Card[]): Card[] {
 
 export function isMano(player: PlayerIndex, mano: PlayerIndex): boolean {
   return player === mano;
+}
+
+export function envidoCards(score: EnvidoScore): Card[] {
+  return score.pair ? [...score.pair] : score.highest ? [score.highest] : [];
 }

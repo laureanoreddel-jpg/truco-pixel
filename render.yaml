@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: truco-pixel
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production

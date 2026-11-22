@@ -1,4 +1,4 @@
-import type { Difficulty } from './ai';
+import type { AiProfile, Difficulty } from './ai';
 
 export interface StoryOpponent {
   id: string;
@@ -10,6 +10,10 @@ export interface StoryOpponent {
   intro: string;
   win: string;
   lose: string;
+  /** Frases sueltas al cantar truco o envido durante la partida. */
+  taunts: { truco: string[]; envido: string[] };
+  /** Ajustes de personalidad sobre la dificultad base. */
+  profile?: Partial<AiProfile>;
 }
 
 /**
@@ -26,6 +30,11 @@ export const STORY_OPPONENTS: StoryOpponent[] = [
     intro: '¿Vos jugás truco? Yo lo inventé. Sentate, nene.',
     win: 'Carlos se rinde el mate. "Tuviste suerte... esta vez."',
     lose: 'Carlos se ríe: "Aprendé a cantar, principiante."',
+    taunts: {
+      truco: ['¡Truco! ¿Y ahora?', 'Canto primero, siempre.', '¿Querés o no querés?'],
+      envido: ['Tengo envido, mirá.', 'Sumo dos y listo.', '¿Te asusta el envido?'],
+    },
+    profile: { bluff: 0.8, envidoBias: -0.2, foldTolerance: 0.9, noise: 4, label: 'Carlos' },
   },
   {
     id: 'nena',
@@ -36,6 +45,11 @@ export const STORY_OPPONENTS: StoryOpponent[] = [
     intro: 'No te ilusiones, lindo. Yo también sé contar cartas.',
     win: 'La Nena te guiña un ojo. "Estás empezando a entender."',
     lose: 'La Nena sonríe: "Te comiste el envido, lindo."',
+    taunts: {
+      truco: ['¿Truco? A ver si aguantás.', 'No te lo creo, lindo.', 'Subo y vos callás.'],
+      envido: ['Mi envido no se discute.', 'Conté mejor que vos.', 'Real envido, ¿te animás?'],
+    },
+    profile: { bluff: 0.3, envidoBias: 0.75, foldTolerance: 0.7, samples: 6, label: 'La Nena' },
   },
   {
     id: 'pepe',
@@ -46,6 +60,11 @@ export const STORY_OPPONENTS: StoryOpponent[] = [
     intro: 'Traje el mate y la bolsa. Vamos a ver si aguantás el retruco.',
     win: 'Tío Pepe te alcanza el mate. "Bien ahí, sobrino."',
     lose: 'Tío Pepe dice: "La bolsa la gana quien no duda."',
+    taunts: {
+      truco: ['Retruco, sobrino.', 'El mate espera, yo no.', 'Vale cuatro y se acabó.'],
+      envido: ['La bolsa es mía.', 'Canto real, tomá mate.', 'Tengo 33, no me mientas.'],
+    },
+    profile: { bluff: 0.12, envidoBias: 0.35, foldTolerance: 0.45, samples: 18, label: 'Tío Pepe' },
   },
   {
     id: 'bruja',
@@ -56,6 +75,11 @@ export const STORY_OPPONENTS: StoryOpponent[] = [
     intro: 'Tengo 33 escondidos. ¿Te animás a cantar falta?',
     win: 'La Bruja guarda sus cartas. "Me ganaste... con truco."',
     lose: 'La Bruja susurra: "No debiste aceptar mi falta."',
+    taunts: {
+      truco: ['El truco también es magia.', 'No te saves escapar.', 'Te gano aunque quieras.'],
+      envido: ['Falta envido, adiviná.', 'Tengo 33 escondidos.', 'Envido envido, ¿seguís?'],
+    },
+    profile: { bluff: 0.35, envidoBias: 0.95, foldTolerance: 0.3, samples: 20, label: 'La Bruja' },
   },
   {
     id: 'campeon',
@@ -66,6 +90,11 @@ export const STORY_OPPONENTS: StoryOpponent[] = [
     intro: 'Acá se decide quién manda. Sentate derecho y jugá.',
     win: 'El Campeón se levanta. "El truco es tuyo, campeón."',
     lose: 'El Campeón dice: "Volvé cuando sepas ir al mazo."',
+    taunts: {
+      truco: ['Acá no se regala nada.', 'Truco. Demostrá.', 'Seguí, que viene retruco.'],
+      envido: ['Falta. Ahora sí duele.', 'Tu envido no me llega.', 'Canto y no me arrepiento.'],
+    },
+    profile: { bluff: 0.02, envidoBias: 0.2, foldTolerance: 0.08, samples: 40, noise: 0, label: 'El Campeón' },
   },
 ];
 

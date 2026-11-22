@@ -251,6 +251,112 @@ export function drawPanel(
   }
 }
 
+/** Trazo redondeado reutilizable para paneles y botonesModernos del HUD. */
+export function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius = 5,
+): void {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/** Panel con sombra suave y borde fino; se usa para menús flotantes. */
+export function drawSoftPanel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill = 'rgba(16, 11, 18, 0.96)',
+  border = 'rgba(255, 201, 60, 0.45)',
+  radius = 7,
+): void {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+  ctx.shadowBlur = 9;
+  ctx.shadowOffsetY = 4;
+  roundedRectPath(ctx, x, y, w, h, radius);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = border;
+  ctx.stroke();
+  ctx.restore();
+}
+
+export interface ModernButtonStyle {
+  color: string;
+  textColor?: string;
+  hover?: boolean;
+  disabled?: boolean;
+  scale?: number;
+  radius?: number;
+  icon?: Suit;
+}
+
+/** Botón del dock: degradado sutil, brillo superior y borde que responde al hover. */
+export function drawModernButton(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  style: ModernButtonStyle,
+): void {
+  const disabled = style.disabled ?? false;
+  const color = disabled ? '#2a2630' : style.color;
+  const gradient = ctx.createLinearGradient(0, y, 0, y + h);
+  gradient.addColorStop(0, shadeColor(color, disabled ? -0.05 : 0.2));
+  gradient.addColorStop(0.55, color);
+  gradient.addColorStop(1, shadeColor(color, disabled ? -0.28 : -0.3));
+  ctx.save();
+  roundedRectPath(ctx, x, y, w, h, style.radius ?? 5);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.lineWidth = style.hover && !disabled ? 2 : 1;
+  ctx.strokeStyle = style.hover && !disabled ? COLORS.cream : shadeColor(color, -0.62);
+  ctx.stroke();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.fillRect(x + 1, y + 1, w - 2, Math.max(2, Math.floor(h / 3)));
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fillRect(x + 1, y + h - 3, w - 2, 2);
+  ctx.restore();
+
+  const scale = style.scale ?? 1;
+  const text = label;
+  const iconW = style.icon ? 9 : 0;
+  const textW = textWidth(text, scale);
+  const startX = Math.round(x + (w - textW - iconW) / 2);
+  if (style.icon) {
+    drawSuit(ctx, style.icon, startX, y + Math.floor((h - 7) / 2), 1, disabled ? COLORS.gray : COLORS.ink);
+  }
+  drawTextShadow(
+    ctx,
+    text,
+    startX + iconW,
+    y + Math.floor((h - 7 * scale) / 2),
+    disabled ? COLORS.gray : style.textColor ?? COLORS.cream,
+    scale,
+  );
+}
+
 export interface ButtonStyle {
   color?: string;
   textColor?: string;

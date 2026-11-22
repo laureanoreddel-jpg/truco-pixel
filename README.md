@@ -10,7 +10,8 @@ Incluye partida contra IA y modo multijugador online con salas.
 - [x] Motor de reglas compartido (cliente y servidor)
 - [x] Jerarquía real de cartas con empates y ronda doble por empate
 - [x] IA con tres niveles de dificultad
-- [x] Interfaz pixel art procedural (sin assets externos), cartas grandes con nombre del palo y barra de fuerza
+- [x] Interfaz en primera persona 2D: mesa en perspectiva, rival sentado enfrente y cartas en profundidad
+- [x] Pantalla de juego minimalista: puntajes, rondas como puntos, tooltips bajo demanda y sin paneles de texto
 - [x] Tooltip con puesto en la jerarquía, envidio y comparación contra la carta del rival
 - [x] Botones con los puntos exactos de cada canto y explicación al pasar el mouse
 - [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla

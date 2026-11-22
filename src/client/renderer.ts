@@ -21,6 +21,7 @@ import {
   drawTextShadow,
   makeGameTable,
   makeTable,
+  shadeColor,
   textWidth,
   tierColor,
 } from './sprites';
@@ -42,6 +43,16 @@ export interface GameView {
   hover: string | null;
   /** Rival de campaña, cuando la partida es del modo historia. */
   opponent?: StoryOpponent;
+  /** Estado del sonido, para mostrar el interruptor en pantalla. */
+  sound?: boolean;
+  /** Frase temporaria del rival de campaña. */
+  taunt?: string;
+}
+
+/** Entrada de código de sala dibujada en el canvas (sin prompt del navegador). */
+export interface JoinInput {
+  active: boolean;
+  value: string;
 }
 
 interface ActionDef {
@@ -352,7 +363,7 @@ export class Renderer {
     return { id, x, y, w, h };
   }
 
-  drawMenu(difficulty: Difficulty, hover: string | null = null): HitBox[] {
+  drawMenu(difficulty: Difficulty, hover: string | null = null, sound = true): HitBox[] {
     this.clear();
     const ctx = this.ctx;
     const W = this.width;
@@ -390,6 +401,7 @@ export class Renderer {
         ),
       );
     });
+    hits.push(this.button('menu:sound', sound ? 'SONIDO ON' : 'SONIDO OFF', 62, 240, 118, 18, sound ? '#245c45' : COLORS.panelLight, COLORS.cream, 1, hover === 'menu:sound'));
     hits.push(this.button('menu:help', 'COMO JUGAR  [H]', 180, 240, 120, 18, COLORS.navy, COLORS.gold, 1, hover === 'menu:help'));
     drawTextCentered(ctx, 'HISTORIA CON 5 RIVALES - AYUDA CON H', W / 2, 262, COLORS.gray);
     return hits;
@@ -518,7 +530,11 @@ export class Renderer {
     return hits;
   }
 
-  drawOnline(info: { code: string; status: string; connected: boolean }, hover: string | null = null): HitBox[] {
+  drawOnline(
+    info: { code: string; status: string; connected: boolean },
+    hover: string | null = null,
+    input: JoinInput = { active: false, value: '' },
+  ): HitBox[] {
     this.clear();
     const ctx = this.ctx;
     const W = this.width;
@@ -527,12 +543,21 @@ export class Renderer {
 
     drawTextCenteredShadow(ctx, 'MULTIJUGADOR', W / 2, 28, COLORS.gold, 2);
     const hits: HitBox[] = [];
-    if (!info.code) {
+    if (input.active) {
+      drawTextCentered(ctx, 'ESCRIBÍ EL CODIGO DE LA SALA', W / 2, 52, COLORS.cream);
+      this.panel(96, 64, W - 192, 54, COLORS.woodDark, COLORS.gold, true);
+      const value = input.value.padEnd(6, '_').slice(0, 6);
+      drawTextCenteredShadow(ctx, value, W / 2, 73, COLORS.gold, 4);
+      drawTextCentered(ctx, 'TECLAS A-Z - BORRAR - ENTER', W / 2, 108, COLORS.gray);
+      hits.push(this.button('online:joinConfirm', 'UNIRME', 62, 132, 170, 30, COLORS.red, COLORS.white, 2, hover === 'online:joinConfirm'));
+      hits.push(this.button('online:joinCancel', 'CANCELAR', 248, 132, 170, 30, COLORS.navy, COLORS.gold, 1, hover === 'online:joinCancel'));
+      drawTextCentered(ctx, 'SOLO LETRAS - 4 A 6 CARACTERES', W / 2, 184, COLORS.gray);
+    } else if (!info.code) {
       drawTextCentered(ctx, 'CREÁ UNA SALA Y PASALE EL CODIGO', W / 2, 56, COLORS.cream);
       hits.push(this.button('online:create', 'CREAR SALA', 50, 82, 180, 34, '#277a4c', COLORS.white, 2, hover === 'online:create'));
       hits.push(this.button('online:join', 'UNIRME', 250, 82, 180, 34, COLORS.red, COLORS.white, 2, hover === 'online:join'));
       drawTextCentered(ctx, 'DOS JUGADORES - UNA SOLA PARTIDA', W / 2, 142, COLORS.gray);
-      drawTextCentered(ctx, 'EL CODIGO TIENE 4 LETRAS', W / 2, 158, COLORS.gray);
+      drawTextCentered(ctx, 'EL CODIGO TIENE 4 A 6 LETRAS', W / 2, 158, COLORS.gray);
       drawTextCentered(ctx, 'EL SERVIDOR ES AUTORITATIVO', W / 2, 174, COLORS.gray);
     } else {
       drawTextCentered(ctx, 'CODIGO DE SALA', W / 2, 50, COLORS.gray);
@@ -601,13 +626,15 @@ export class Renderer {
     const defs = actionDefs(state, human);
 
     // ---------- Placas de marcador ----------
-    const humanTurn = state.phase === 'playing' && !state.pending && state.turn === human;
-    this.panel(6, 2, 104, 28, 'rgba(18,13,10,0.94)', humanTurn ? COLORS.green : COLORS.goldDark);
+    const humanTurn = state.phase === 'playing' && (state.pending ? other(state.pending.by) === human : state.turn === human);
+    const rivalTurn = state.phase === 'playing' && (state.pending ? other(state.pending.by) === rival : state.turn === rival);
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 5);
+    this.panel(6, 2, 104, 28, 'rgba(18,13,10,0.94)', humanTurn ? shadeColor(COLORS.green, pulse * 0.45) : COLORS.goldDark);
     drawAvatar(ctx, 'player', 10, 6, 1);
     drawText(ctx, 'VOS', 28, 4, COLORS.gold);
     drawText(ctx, String(state.scores[human]).padStart(2, '0'), 28, 14, COLORS.green, 2);
 
-    this.panel(W - 110, 2, 104, 28, 'rgba(18,13,10,0.94)', state.turn === rival ? COLORS.red : COLORS.goldDark);
+    this.panel(W - 110, 2, 104, 28, 'rgba(18,13,10,0.94)', rivalTurn ? shadeColor(COLORS.red, pulse * 0.45) : COLORS.goldDark);
     drawAvatar(ctx, view.mode === 'online' ? 'player' : 'rival', W - 22, 6, 1);
     drawText(ctx, clip(rivalLabel, 12), W - 104, 4, COLORS.gold);
     rightText(ctx, String(state.scores[rival]).padStart(2, '0'), W - 30, 14, COLORS.red, 2);
@@ -633,10 +660,14 @@ export class Renderer {
       ctx.fillStyle = color;
       ctx.fillRect(230 + r * 10, 45, 7, 7);
     }
+    hits.push({ id: 'game:rounds', x: 226, y: 41, w: 37, h: 15 });
 
     hits.push({ id: 'game:help', x: 8, y: 32, w: 16, h: 16 });
     this.panel(8, 32, 16, 16, hover === 'game:help' ? COLORS.red : COLORS.panel, COLORS.gold);
     drawTextCentered(ctx, '?', 16, 36, COLORS.gold);
+    hits.push({ id: 'game:sound', x: 26, y: 32, w: 16, h: 16 });
+    this.panel(26, 32, 16, 16, hover === 'game:sound' ? COLORS.red : COLORS.panel, COLORS.gold);
+    drawTextCentered(ctx, view.sound === false ? 'x' : 'S', 34, 36, view.sound === false ? COLORS.gray : COLORS.green);
     hits.push({ id: 'game:menu', x: W - 24, y: 32, w: 16, h: 16 });
     this.panel(W - 24, 32, 16, 16, hover === 'game:menu' ? COLORS.redDark : COLORS.panel, COLORS.gold);
     drawTextCentered(ctx, 'X', W - 16, 36, COLORS.cream);
@@ -660,6 +691,18 @@ export class Renderer {
       drawTextCenteredShadow(ctx, label, W / 2, 62, COLORS.gold, 2);
     } else if (view.notice) {
       drawTextCentered(ctx, clip(view.notice, 34), W / 2, 62, COLORS.pink);
+    }
+
+    if (view.taunt) {
+      const bx = 8;
+      this.panel(bx, 52, 160, 30, COLORS.paper, COLORS.goldDark, true);
+      ctx.fillStyle = COLORS.paper;
+      ctx.fillRect(bx + 160, 58, 6, 7);
+      ctx.fillStyle = COLORS.goldDark;
+      ctx.fillRect(bx + 165, 60, 2, 3);
+      wrapText(`"${view.taunt}"`, 24).slice(0, 2).forEach((line, i) => {
+        drawText(ctx, line, bx + 6, 57 + i * 12, COLORS.ink);
+      });
     }
 
     // Tu envido siempre a la vista, el del rival nunca.
@@ -695,6 +738,34 @@ export class Renderer {
           hits.push(this.button(id, def.label, x, y, 100, 24, def.color, def.text, 1, hover === id));
         });
       }
+    }
+
+    // ---------- Papelitos de ayuda: solo al señalar ----------
+    const hoveredAction = labels.find((def) => hover === `action:${def.type}`);
+    if (hoveredAction) {
+      const button = hits.find((h) => h.id === `action:${hoveredAction.type}`);
+      const tw = 196;
+      const tx = button && button.x + button.w / 2 < W / 2 ? 8 : W - tw - 8;
+      const ty = button && button.y > 150 ? button.y - 38 : 64;
+      this.panel(tx, ty, tw, 34, COLORS.paper, COLORS.goldDark, true);
+      ctx.fillStyle = COLORS.gold;
+      ctx.fillRect(tx + 94, ty - 2, 6, 4);
+      wrapText(hoveredAction.hint, 30).slice(0, 2).forEach((line, i) => {
+        drawText(ctx, line, tx + 7, ty + 6 + i * 12, COLORS.ink);
+      });
+    }
+
+    if (hover === 'game:rounds') {
+      const outcome = (r: number): string => {
+        const round = state.played[r];
+        if (!round[0] || !round[1]) return '--';
+        const w = this.roundWinnerForDisplay(round[0], round[1]);
+        return w === 'EMP' ? 'PARDA' : (w === 'P1') === (human === 0) ? 'VOS' : 'RIVAL';
+      };
+      this.panel(8, 58, 150, 40, COLORS.paper, COLORS.goldDark, true);
+      drawText(ctx, `R1 ${outcome(0)}   R2 ${outcome(1)}`, 14, 63, COLORS.ink);
+      drawText(ctx, `R3 ${outcome(2)}   MANO ${state.mano === human ? 'VOS' : 'RIVAL'}`, 14, 76, COLORS.ink);
+      drawText(ctx, 'PARDA: NO SUMA NADIE', 14, 88, COLORS.gray);
     }
 
     // ---------- Tus cartas, abanicadas sobre el borde de la mesa ----------

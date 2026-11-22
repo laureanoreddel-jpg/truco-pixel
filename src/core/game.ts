@@ -51,6 +51,7 @@ export class TrucoGame {
       envidoResult: null,
       lastHand: null,
       pending: null,
+      deferredTruco: null,
       winner: null,
       log: [],
       lastEvent: 'Repartiendo cartas...',
@@ -81,6 +82,7 @@ export class TrucoGame {
     s.envidoResult = null;
     s.lastHand = null;
     s.pending = null;
+    s.deferredTruco = null;
     s.phase = 'playing';
     s.winner = null;
     s.lastEvent = `Mano ${s.handNumber}: arranca ${PLAYER_NAMES[s.mano]}`;
@@ -104,10 +106,69 @@ export class TrucoGame {
     return this.state.envidoPot + (this.state.pending?.kind === 'envido' ? this.state.pending.bid : 0);
   }
 
+  private roundWinner(roundIndex: number): PlayerIndex | null {
+    const round = this.state.played[roundIndex];
+    if (!round || !round[0] || !round[1]) return null;
+    const diff = cardStrength(round[0]) - cardStrength(round[1]);
+    return diff > 0 ? 0 : diff < 0 ? 1 : null;
+  }
+
   private roundIsTie(roundIndex: number): boolean {
     const round = this.state.played[roundIndex];
-    if (!round || !round[0] || !round[1]) return false;
-    return cardStrength(round[0]) === cardStrength(round[1]);
+    return Boolean(round?.[0] && round[1]) && this.roundWinner(roundIndex) === null;
+  }
+
+  /** El envido solo se canta antes de la primera carta, mientras no esté resuelto. */
+  private canSingEnvido(): boolean {
+    const status = this.state.envidoStatus;
+    return this.cardsPlayed() === 0 && status !== 'declined' && status !== 'accepted';
+  }
+
+  /** Falta envido requiere que haya un puntero (no se puede cantar empatados). */
+  private canCallFalta(player: PlayerIndex): boolean {
+    return this.state.scores[player] !== this.state.scores[other(player)];
+  }
+
+  private envidoBid(level: EnvidoLevel, player: PlayerIndex): number {
+    if (level === 4) return Math.max(1, this.targetScore - this.state.scores[other(player)]);
+    return level === 1 ? 2 : level === 2 ? 3 : 4;
+  }
+
+  private envidoCalls(player: PlayerIndex, minLevel = 1): GameAction[] {
+    const actions: GameAction[] = [];
+    if (minLevel <= 1) actions.push({ type: 'callEnvido' });
+    if (minLevel <= 2) actions.push({ type: 'callRealEnvido' });
+    if (minLevel <= 3) actions.push({ type: 'callEnvidoEnvido' });
+    if (minLevel <= 4 && this.canCallFalta(player)) actions.push({ type: 'callFalta' });
+    return actions;
+  }
+
+  private openEnvido(player: PlayerIndex, level: EnvidoLevel): boolean {
+    const s = this.state;
+    if (!this.canSingEnvido()) return false;
+    if (level === 4 && !this.canCallFalta(player)) return false;
+    const bid = this.envidoBid(level, player);
+    const potAfter = this.currentEnvidoPot() + bid;
+    // "Envido va primero": si había un truco cantado, queda diferido.
+    if (s.pending?.kind === 'truco') s.deferredTruco = s.pending;
+    s.envidoStatus = 'called';
+    s.envidoLevel = level;
+    s.envidoCaller = player;
+    s.pending = { kind: 'envido', by: player, level, bid, potAfter };
+    const name = ['', 'ENVIDO', 'REAL ENVIDO', 'ENVIDO ENVIDO', 'FALTA ENVIDO'][level];
+    s.lastEvent = `${PLAYER_NAMES[player]} dice ${name} (+${bid}, bolsa ${potAfter})`;
+    this.log(s.lastEvent);
+    return true;
+  }
+
+  private restoreDeferredTruco(): void {
+    const s = this.state;
+    const deferred = s.deferredTruco;
+    if (!deferred || deferred.kind !== 'truco' || s.phase !== 'playing') return;
+    s.pending = deferred;
+    s.deferredTruco = null;
+    s.lastEvent = `${s.lastEvent}. Sigue el truco por ${trucoPoints(deferred.level)}`;
+    this.log(s.lastEvent);
   }
 
   legalActions(player: PlayerIndex): GameAction[] {
@@ -120,15 +181,13 @@ export class TrucoGame {
       if (s.pending.kind === 'truco') {
         const actions: GameAction[] = [{ type: 'acceptTruco' }, { type: 'declineTruco' }];
         if (s.pending.level < 3) actions.push({ type: 'raiseTruco' });
+        // El rival puede exigir que el envido se resuelva antes que el truco.
+        if (this.canSingEnvido()) actions.push(...this.envidoCalls(player));
         return actions;
       }
       const actions: GameAction[] = [{ type: 'acceptEnvido' }, { type: 'declineEnvido' }];
-      // Cadena correcta: envido -> real envido -> falta envido (sin repetir envido).
-      if (s.envidoLevel < 1) actions.push({ type: 'callEnvido' });
-      if (s.envidoLevel < 2) actions.push({ type: 'callRealEnvido' });
-      if (s.envidoLevel < 3 && s.scores[player] !== s.scores[other(player)]) {
-        actions.push({ type: 'callFalta' });
-      }
+      // Solo se puede subir de escalón: envido → real → envido envido → falta.
+      actions.push(...this.envidoCalls(player, (s.envidoLevel ?? 0) + 1));
       return actions;
     }
 
@@ -136,13 +195,10 @@ export class TrucoGame {
 
     const actions: GameAction[] = s.hands[player].map((card) => ({ type: 'playCard', cardId: card.id }));
     if (s.trucoLevel === 0) actions.push({ type: 'callTruco' });
-    else if (s.trucoLevel < 3) actions.push({ type: 'raiseTruco' });
+    // Retruco/vale cuatro los puede cantar quien recibió el canto, también después de aceptar.
+    else if (s.trucoLevel < 3 && s.trucoCaller !== player) actions.push({ type: 'raiseTruco' });
     actions.push({ type: 'fold' });
-    if (this.cardsPlayed() === 0 && s.envidoStatus !== 'declined' && s.envidoStatus !== 'accepted') {
-      actions.push({ type: 'callEnvido' });
-      actions.push({ type: 'callRealEnvido' });
-      if (s.scores[player] !== s.scores[other(player)]) actions.push({ type: 'callFalta' });
-    }
+    if (this.canSingEnvido()) actions.push(...this.envidoCalls(player));
     return actions;
   }
 
@@ -196,42 +252,14 @@ export class TrucoGame {
         this.finishHand(caller, level, 'truco rechazado');
         return true;
       }
-      case 'callEnvido': {
-        if (this.cardsPlayed() > 0 || s.envidoStatus === 'declined' || s.envidoStatus === 'accepted') return false;
-        const level: EnvidoLevel = 1;
-        const potAfter = this.currentEnvidoPot() + 2;
-        s.envidoStatus = 'called';
-        s.envidoLevel = level;
-        s.envidoCaller = player;
-        s.pending = { kind: 'envido', by: player, level, bid: 2, potAfter };
-        s.lastEvent = `${PLAYER_NAMES[player]} dice ENVIDO (+2, bolsa ${potAfter})`;
-        this.log(s.lastEvent);
-        return true;
-      }
-      case 'callRealEnvido': {
-        if (this.cardsPlayed() > 0 || s.envidoStatus === 'declined' || s.envidoStatus === 'accepted') return false;
-        const potAfter = this.currentEnvidoPot() + 3;
-        s.envidoStatus = 'called';
-        s.envidoLevel = 2;
-        s.envidoCaller = player;
-        s.pending = { kind: 'envido', by: player, level: 2, bid: 3, potAfter };
-        s.lastEvent = `${PLAYER_NAMES[player]} dice REAL ENVIDO (+3, bolsa ${potAfter})`;
-        this.log(s.lastEvent);
-        return true;
-      }
-      case 'callFalta': {
-        if (this.cardsPlayed() > 0 || s.envidoStatus === 'declined' || s.envidoStatus === 'accepted') return false;
-        if (s.scores[player] === s.scores[other(player)]) return false;
-        const bid = Math.max(1, s.targetScore - s.scores[player]);
-        const potAfter = this.currentEnvidoPot() + bid;
-        s.envidoStatus = 'called';
-        s.envidoLevel = 3;
-        s.envidoCaller = player;
-        s.pending = { kind: 'envido', by: player, level: 3, bid, potAfter };
-        s.lastEvent = `${PLAYER_NAMES[player]} dice FALTA ENVIDO (+${bid}, bolsa ${potAfter})`;
-        this.log(s.lastEvent);
-        return true;
-      }
+      case 'callEnvido':
+        return this.openEnvido(player, 1);
+      case 'callRealEnvido':
+        return this.openEnvido(player, 2);
+      case 'callEnvidoEnvido':
+        return this.openEnvido(player, 3);
+      case 'callFalta':
+        return this.openEnvido(player, 4);
       case 'acceptEnvido': {
         if (s.pending?.kind !== 'envido') return false;
         s.envidoPot = s.pending.potAfter;
@@ -242,26 +270,30 @@ export class TrucoGame {
         s.pending = null;
         s.lastEvent = `Envidio ${scores[winner]}: ${PLAYER_NAMES[winner]} gana ${s.envidoPot}`;
         this.log(s.lastEvent);
+        this.restoreDeferredTruco();
         return true;
       }
       case 'declineEnvido': {
         if (s.pending?.kind !== 'envido') return false;
-        const { by: caller, level, bid } = s.pending;
-        // Envido rechazado = 1, real = 2, falta = lo que se cantó.
-        const points = level === 3 ? bid : declinePoints('envido', level);
+        const { by: caller, level } = s.pending;
+        // Rechazo = escalón anterior: 1, 2, 3 o 4 puntos.
+        const points = declinePoints('envido', level);
         s.pending = null;
         s.envidoStatus = 'declined';
         s.lastEvent = `${PLAYER_NAMES[other(caller)]} no acepta: ${PLAYER_NAMES[caller]} gana ${points}`;
         this.log(s.lastEvent);
         this.award(caller, points);
         this.checkGameEnd();
+        this.restoreDeferredTruco();
         return true;
       }
       case 'fold': {
         const winner = other(player);
+        // Antes de cerrar el turno del envido, abandonar cuesta envido + truco.
+        const mazoPoints = trucoPoints(s.trucoLevel) + (this.canSingEnvido() ? 1 : 0);
         s.lastEvent = `${PLAYER_NAMES[player]} se fue al mazo`;
         this.log(s.lastEvent);
-        this.finishHand(winner, trucoPoints(s.trucoLevel), 'mazo');
+        this.finishHand(winner, mazoPoints, 'mazo');
         return true;
       }
       case 'nextHand':
@@ -282,39 +314,54 @@ export class TrucoGame {
 
   private resolveRound(): void {
     const s = this.state;
-    const round = s.played[s.round];
-    const a = round[0]!;
-    const b = round[1]!;
-    const strengthA = cardStrength(a);
-    const strengthB = cardStrength(b);
-    const winner: PlayerIndex | null = strengthA > strengthB ? 0 : strengthB > strengthA ? 1 : null;
-    const tiedNow = this.roundIsTie(s.round);
-    const tiedBefore = s.round > 0 && this.roundIsTie(s.round - 1);
-    const value = tiedBefore ? 2 : 1;
-
+    const winner = this.roundWinner(s.round);
     if (winner === null) {
-      s.lastEvent = `Ronda ${s.round + 1}: empate${tiedNow ? ' (la próxima vale doble)' : ''}`;
+      s.lastEvent = `Ronda ${s.round + 1}: parda`;
     } else {
       s.roundWins[winner] += 1;
-      s.roundPoints[winner] += value;
-      s.lastEvent = `Ronda ${s.round + 1}: gana ${PLAYER_NAMES[winner]}${value === 2 ? ' x2' : ''}`;
+      s.roundPoints[winner] += 1;
+      s.lastEvent = `Ronda ${s.round + 1}: gana ${PLAYER_NAMES[winner]}`;
     }
     this.log(s.lastEvent);
     s.turn = winner ?? s.mano;
     s.round += 1;
+    if (this.handIsDecided()) this.finishHandByRounds();
+  }
 
-    if (s.round >= 3 || s.roundPoints[0] >= 2 || s.roundPoints[1] >= 2) {
-      this.finishHandByRounds();
+  /**
+   * Pardas según el reglamento: si empatan las dos primeras, decide la tercera;
+   * si empatan las tres, gana el mano. Si se empata la segunda gana quien ganó la primera.
+   */
+  private handIsDecided(): boolean {
+    const s = this.state;
+    if (s.round >= 3) return true;
+    if (s.round < 2) return false;
+    const first = this.roundWinner(0);
+    const second = this.roundWinner(1);
+    if (first === null) return second !== null;
+    if (second === null) return true;
+    return first === second;
+  }
+
+  private decideHandWinner(): PlayerIndex {
+    const s = this.state;
+    const first = this.roundWinner(0);
+    const second = this.roundWinner(1);
+    const third = this.roundWinner(2);
+    if (first !== null) {
+      if (second === null || second === first) return first;
+      return third ?? first; // parda en la tercera: vuelve a quien ganó la primera
     }
+    if (second !== null) return second; // parda en la primera: decide la segunda
+    return third ?? s.mano; // tres pardas: gana el mano
   }
 
   private finishHandByRounds(): void {
     const s = this.state;
-    const [points0, points1] = s.roundPoints;
-    const handWinner: PlayerIndex = points0 > points1 ? 0 : points1 > points0 ? 1 : s.mano;
-    const doubled = s.roundPoints[handWinner] >= 2;
-    const handPoints = trucoPoints(s.trucoLevel) * (doubled ? 2 : 1);
-    this.finishHand(handWinner, handPoints, doubled ? 'mano doble' : 'mano');
+    const handWinner = this.decideHandWinner();
+    const pardas = [0, 1, 2].filter((round) => this.roundWinner(round) === null).length;
+    const reason = pardas === 3 ? 'tres pardas (mano)' : pardas > 0 ? 'parda' : 'mano';
+    this.finishHand(handWinner, trucoPoints(s.trucoLevel), reason);
   }
 
   private finishHand(handWinner: PlayerIndex, handPoints: number, reason: string): void {

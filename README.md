@@ -136,7 +136,7 @@ No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son v
 src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
-tests/        tests del motor, la IA y el servidor con Vitest (79 pruebas)
+tests/        tests del motor, la IA y el servidor con Vitest (80 pruebas)
 ```
 
 El servidor es autoritativo en online: el cliente envía solo acciones y recibe una **vista privada** del estado (sin la mano del rival ni el envido sin resolver).

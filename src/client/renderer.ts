@@ -21,7 +21,6 @@ import {
   drawRivalAction,
   drawTextCentered,
   drawTextCenteredShadow,
-  drawTextShadow,
   makeGameTable,
   makeTable,
   shadeColor,
@@ -241,15 +240,6 @@ function logEntry(line: string, human: PlayerIndex): string {
   return shown;
 }
 
-function tierName(tier: number): string {
-  if (tier <= 1) return 'LA CARTA MAS ALTA';
-  if (tier <= 4) return 'MUY FUERTE';
-  if (tier <= 8) return 'FUERTE';
-  if (tier <= 11) return 'MEDIA';
-  if (tier <= 13) return 'DEBIL';
-  return 'LA CARTA MAS BAJA';
-}
-
 function tierShort(tier: number): string {
   if (tier <= 1) return 'MAS ALTA';
   if (tier <= 4) return 'MUY FUERTE';
@@ -264,8 +254,19 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
   const nextTruco = p?.kind === 'truco' ? Math.min(3, p.level + 1) : Math.min(3, (state.trucoLevel || 0) + 1);
   // La falta siempre se calcula desde el marcador; no hereda el valor del canto previo.
   const falta = envidoCallValue('falta', state.scores, state.targetScore);
+  // Rechazo del canto actual; si se cantara uno nuevo, el rechazo pagaría la
+  // bolsa ya aceptada (sin el canto nuevo).
   const rejectEnvido = p?.kind === 'envido' ? envidoDecline(p.bids) : 1;
-  const mazoEnvido = state.played.flat().every((card) => card === null) && state.envidoStatus === 'open' ? 1 : 0;
+  const nextReject = p?.kind === 'envido' ? Math.max(1, p.potAfter) : 1;
+  // El motor sólo da el punto extra de envido si quien se rinde aún no tiró su
+  // primera carta, no hay truco aceptado y no se cantó envido en la mano.
+  const mazoEnvido =
+    state.envidoStatus === 'open' &&
+    state.envidoBids.length === 0 &&
+    state.played[0][human] === null &&
+    state.trucoLevel === 0
+      ? 1
+      : 0;
   const foldValue = trucoPoints(state.trucoLevel) + mazoEnvido;
 
   return {
@@ -292,8 +293,8 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
       label: p?.kind === 'envido' ? `ENVIDO +2 (VA ${p.potAfter + 2})` : 'ENVIDO +2',
       color: '#d99a15', text: COLORS.shadow,
       hint: p?.kind === 'envido'
-        ? `Aceptás el canto anterior y subís 2: la bolsa queda en ${p.potAfter + 2}.`
-        : 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
+        ? `Aceptás el canto anterior y subís 2: la bolsa queda en ${p.potAfter + 2}. Rechazo = ${nextReject}.`
+        : 'Sumás 2 a los tantos en juego. Rechazo = 1. Se paga al cerrar la mano.',
     },
     callRealEnvido: {
       type: 'callRealEnvido',
@@ -304,12 +305,12 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
         : 'Sumás 3 a los tantos en juego. Podés seguir con envido, real o falta.',
     },
     callEnvidoEnvido: {
-      type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#ffc93c', text: COLORS.shadow,
+      type: 'callEnvidoEnvido', label: 'ENVIDO ENVIDO +2 (VA 4)', color: '#ffc93c', text: COLORS.shadow,
       hint: 'Contestás "envido" al envido: sumás 2 y la bolsa queda en 4. Si no lo quieren, ganás 2.',
     },
     callFalta: {
       type: 'callFalta', label: `FALTA ENVIDO +${falta}`, color: '#d06a1a', text: COLORS.shadow,
-      hint: `Cantás ${falta}: lo que le falta a quien va ganando para ${state.targetScore}. Reemplaza la bolsa; rechazo = ${rejectEnvido} para vos.`,
+      hint: `Cantás ${falta}: lo que le falta a quien va ganando para ${state.targetScore}. Reemplaza la bolsa; rechazo = ${nextReject} para vos.`,
     },
     acceptEnvido: {
       type: 'acceptEnvido', label: `QUIERO x${p?.kind === 'envido' ? p.potAfter : 2}`,
@@ -916,8 +917,10 @@ export class Renderer {
 
     // Aviso de ronda: se dibuja antes que las cartas para no taparlas.
     if (this.roundFlash && performance.now() < this.roundFlash.until && !state.pending) {
-      this.panel(166, 106, 148, 16, 'rgba(10,7,14,0.94)', COLORS.green);
-      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 110, COLORS.cream, 1);
+      // A la izquierda de las cartas centrales: el cartel queda legible sin
+      // taparlas aunque haya carta jugada en la ronda siguiente.
+      this.panel(84, 106, 128, 16, 'rgba(10,7,14,0.94)', COLORS.green);
+      drawTextCenteredShadow(ctx, this.roundFlash.text, 148, 110, COLORS.cream, 1);
     } else if (this.roundFlash && performance.now() >= this.roundFlash.until) {
       this.roundFlash = null;
     }
@@ -996,8 +999,9 @@ export class Renderer {
 
     if (view.disconnected) rightText(ctx, 'DESCONECTADO', W - 30, 32, COLORS.red);
 
-    // Ronda explícita bajo el marcador; el detalle R1/R2/R3 vive en el tooltip.
-    drawTextCentered(ctx, `RONDA ${Math.min(state.round + 1, 3)}/3`, W / 2, 53, COLORS.cream);
+    // Ronda explícita a la derecha del marcador: al centro queda la etiqueta
+    // de la carta del rival, que no debe taparse.
+    rightText(ctx, `RONDA ${Math.min(state.round + 1, 3)}/3`, W - 120, 53, COLORS.cream);
 
     // Historial breve: dos líneas por encima del dock, sin chocar con el cartel de canto.
     const recent = state.log.slice(-2);
@@ -1065,7 +1069,12 @@ export class Renderer {
       const isHover = i === hoveredIndex;
       const y = 206 + (i === 1 ? -8 : -2) - (isHover && canPlay ? 10 : 0);
       this.handCard(card, x, y, angles[i] ?? 0, canPlay || isHover, i);
-      if (canPlay) hits.push({ id: `card:${card.id}`, x: x - 4, y: y - 10, w: CARD_W + 8, h: CARD_H + 12 });
+      if (canPlay) {
+        // El dock termina en y=194: el borde superior de la carta no debe
+        // robarle clics a los botones que quedan justo encima.
+        const top = Math.max(y - 10, 196);
+        hits.push({ id: `card:${card.id}`, x: x - 4, y: top, w: CARD_W + 8, h: y + CARD_H + 2 - top });
+      }
     });
 
     // Tooltip tipo papelito: solo cuando señalás una carta.

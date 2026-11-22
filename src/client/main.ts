@@ -424,6 +424,7 @@ window.addEventListener('keydown', (event) => {
   const shortcuts: Record<string, GameAction['type'][]> = {
     e: ['acceptEnvido', 'callEnvido'],
     r: ['callRealEnvido'],
+    d: ['callEnvidoEnvido'],
     f: ['callFalta'],
     t: ['acceptTruco', 'callTruco'],
     s: ['raiseTruco'],

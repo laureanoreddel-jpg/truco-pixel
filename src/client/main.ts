@@ -1,5 +1,6 @@
 import { chooseAiAction, makeStoryProfile, profileFor, type Difficulty } from '../core/ai';
 import { TrucoGame } from '../core/game';
+import { cardLabel } from '../core/hand';
 import {
   isStoryUnlocked,
   loadStoryProgress,
@@ -7,13 +8,14 @@ import {
   saveStoryProgress,
   STORY_OPPONENTS,
 } from '../core/story';
-import { other, type GameAction, type GameState, type PlayerIndex } from '../core/types';
+import { namesForViewer, other, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import { AudioFx } from './audio';
 import { NetClient, type ServerMessage } from './net';
 import { Renderer, type HitBox, type JoinInput } from './renderer';
 import './style.css';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+const roomInput = document.getElementById('room-code') as HTMLInputElement;
 const ctx = canvas.getContext('2d')!;
 ctx.imageSmoothingEnabled = false;
 
@@ -103,6 +105,10 @@ let storyTaunt = '';
 let tauntTimer: number | undefined;
 let reconnectTimer: number | undefined;
 let reconnectAttempts = 0;
+let opponentDisconnected = false;
+let inputWasActive = false;
+const inviteCode = new URLSearchParams(location.search).get('sala');
+let pendingInvite = inviteCode ? inviteCode.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6) : null;
 const srStatus = document.getElementById('sr-status');
 let lastAnnouncement = '';
 
@@ -121,7 +127,24 @@ function announce(text: string): void {
   srStatus.textContent = text;
 }
 
+/** El campo real sólo existe mientras se escribe el código; el canvas dibuja el marco. */
+function syncRoomInput(): void {
+  const active = screen === 'online' && joinInput.active;
+  roomInput.hidden = !active;
+  if (!active) {
+    inputWasActive = false;
+    return;
+  }
+  if (roomInput.value !== joinInput.value) roomInput.value = joinInput.value;
+  if (!inputWasActive) {
+    inputWasActive = true;
+    roomInput.focus();
+    roomInput.select();
+  }
+}
+
 function render(): void {
+  syncRoomInput();
   if (screen === 'menu') {
     hits = renderer.drawMenu(difficulty, hover, audio.enabled);
   } else if (screen === 'online') {
@@ -144,6 +167,7 @@ function render(): void {
       opponent: mode === 'story' ? STORY_OPPONENTS[storyIndex] : undefined,
       sound: audio.enabled,
       taunt: storyTaunt,
+      disconnected: mode === 'online' && opponentDisconnected,
     });
   }
 
@@ -158,7 +182,9 @@ function render(): void {
           : s.turn === human
             ? 'Tu turno'
             : 'Turno del rival';
-    announce(`${status}. Vos ${s.scores[human]}, rival ${s.scores[other(human)]}.`);
+    const cards = s.hands[human].map((card) => cardLabel(card)).join(', ');
+    const last = s.log[s.log.length - 1] ?? '';
+    announce(`${status}. Vos ${s.scores[human]}, rival ${s.scores[other(human)]}. Tus cartas: ${cards}. ${namesForViewer(last, human)}.`);
   } else {
     announce(`Pantalla ${screen}`);
   }
@@ -315,7 +341,8 @@ function startOnline(): void {
   screen = 'online';
   mode = 'online';
   game = null;
-  room = { code: '', status: 'Conectando al servidor...', connected: false, token: sessionGet('truco-token') ?? '' };
+  opponentDisconnected = false;
+  room = { code: '', status: 'Conectando... si tarda, el servidor puede estar despertando', connected: false, token: sessionGet('truco-token') ?? '' };
   net.onMessage = handleNetMessage;
   net.onClose = () => {
     cancelReconnect();
@@ -349,6 +376,12 @@ function handleNetMessage(message: ServerMessage): void {
       room.token = message.token;
       room.status = message.player === 0 ? 'Esperando al rival...' : 'Conectado';
       sessionSet('truco-token', message.token);
+      if (pendingInvite && pendingInvite.length === 6) {
+        const code = pendingInvite;
+        pendingInvite = null;
+        confirmJoin(code);
+        return;
+      }
       if (message.state) {
         game = new TrucoGame(1);
         game.state = message.state;
@@ -386,7 +419,8 @@ function handleNetMessage(message: ServerMessage): void {
     }
     case 'opponent':
       room.connected = message.connected;
-      room.status = message.connected ? 'Rival conectado' : 'Esperando al rival...';
+      opponentDisconnected = !message.connected && Boolean(room.code);
+      room.status = message.connected ? 'Rival conectado' : 'Rival desconectado: esperando...';
       render();
       break;
     case 'error':
@@ -406,12 +440,15 @@ function dispatchOnline(action: GameAction): void {
 }
 
 function goMenu(): void {
+  if (mode === 'online' && game && !window.confirm('¿Querés salir de la partida online?')) return;
   stopAi();
   cancelReconnect();
   if (storyResultTimer) window.clearTimeout(storyResultTimer);
   storyResultTimer = undefined;
   net.close();
   sessionRemove('truco-token');
+  pendingInvite = null;
+  opponentDisconnected = false;
   hover = null;
   joinInput = { active: false, value: '' };
   screen = 'menu';
@@ -491,8 +528,8 @@ function handleHit(id: string): void {
   }
   if (id === 'online:joinConfirm') {
     const code = joinInput.value.trim().toUpperCase();
-    if (code.length < 4) {
-      room.status = 'El codigo necesita al menos 4 letras';
+    if (code.length !== 6) {
+      room.status = 'El codigo tiene 6 letras';
       render();
       return;
     }
@@ -500,8 +537,15 @@ function handleHit(id: string): void {
     return;
   }
   if (id === 'online:copy') {
-    void navigator.clipboard?.writeText(room.code);
-    room.status = 'Codigo copiado';
+    const link = `${location.origin}${location.pathname}?sala=${room.code}`;
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(link).then(
+        () => { room.status = 'Invitacion copiada'; render(); },
+        () => { room.status = `Invitacion: ${link}`; render(); },
+      );
+    } else {
+      room.status = `Invitacion: ${link}`;
+    }
     render();
     return;
   }
@@ -558,32 +602,30 @@ canvas.addEventListener('pointerleave', () => {
   }
 });
 
+roomInput.addEventListener('input', () => {
+  const value = roomInput.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
+  roomInput.value = value;
+  joinInput = { ...joinInput, value };
+  render();
+});
+
+roomInput.addEventListener('keydown', (event) => {
+  event.stopPropagation();
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (joinInput.value.length === 6) confirmJoin(joinInput.value);
+    else { room.status = 'El codigo tiene 6 letras'; render(); }
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    joinInput = { active: false, value: '' };
+    render();
+  }
+});
+
 window.addEventListener('keydown', (event) => {
+  if (event.target === roomInput) return;
   if (screen === 'online' && joinInput.active) {
-    const letter = event.key.toUpperCase();
-    if (/^[A-Z]$/.test(letter)) {
-      if (joinInput.value.length < 6) joinInput = { ...joinInput, value: joinInput.value + letter };
-      render();
-      return;
-    }
-    if (event.key === 'Backspace') {
-      joinInput = { ...joinInput, value: joinInput.value.slice(0, -1) };
-      render();
-      return;
-    }
-    if (event.key === 'Enter') {
-      const code = joinInput.value.trim().toUpperCase();
-      if (code.length >= 4) confirmJoin(code);
-      else {
-        room.status = 'El codigo necesita al menos 4 letras';
-        render();
-      }
-      return;
-    }
-    if (event.key === 'Escape') {
-      joinInput = { active: false, value: '' };
-      render();
-    }
+    roomInput.focus();
     return;
   }
   const key = event.key.toLowerCase();
@@ -625,6 +667,7 @@ window.addEventListener('keydown', (event) => {
   }
 
   const shortcuts: Record<string, GameAction['type'][]> = {
+    q: ['acceptEnvido', 'acceptTruco'],
     e: ['acceptEnvido', 'callEnvido'],
     r: ['callRealEnvido'],
     d: ['callEnvidoEnvido'],
@@ -651,5 +694,26 @@ function loop(): void {
   requestAnimationFrame(loop);
 }
 
-render();
+/** En pantallas grandes se escala por enteros; en celular se aprovecha todo el ancho. */
+function applyCanvasScale(): void {
+  const availableWidth = Math.max(280, window.innerWidth - 16);
+  const availableHeight = Math.max(180, window.innerHeight - 16);
+  const exact = Math.min(availableWidth / canvas.width, availableHeight / canvas.height);
+  const scale = exact >= 1.5 ? Math.max(1, Math.floor(exact)) : exact;
+  const width = Math.min(availableWidth, scale * canvas.width);
+  document.documentElement.style.setProperty('--game-w', `${Math.round(width)}px`);
+}
+
+applyCanvasScale();
+window.addEventListener('resize', applyCanvasScale);
+
+if (inviteCode) {
+  if (pendingInvite?.length === 6) startOnline();
+  else {
+    room.status = 'El enlace de invitacion no tiene un codigo de 6 letras';
+    render();
+  }
+} else {
+  render();
+}
 requestAnimationFrame(loop);

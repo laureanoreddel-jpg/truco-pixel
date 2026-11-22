@@ -32,6 +32,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] El envido del rival permanece oculto hasta el cierre de la mano
 - [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `Q`, `R`, `D`, `F`, `T`, `S`, `N`, `M`, `Enter`)
 - [x] Multijugador online con salas de 6 letras, enlace de invitación `?sala=CODIGO`, campo de texto real en celular, aviso de rival desconectado, confirmación al salir, reconexión por pestaña y servidor autoritativo
+- [x] Gracia de reconexión de 5 minutos incluso si caen ambos jugadores; se puede seguir jugando con el rival desconectado y se le sincroniza el estado al volver; la sesión vencida devuelve al menú online sin trabar el WebSocket
 - [x] Cada jugador recibe una vista privada del estado: el servidor nunca envía la mano del rival ni el resultado del envido antes del cierre
 - [x] Sonido chiptune generado con WebAudio
 - [x] Build y deploy en un solo proceso
@@ -117,10 +118,10 @@ Basadas en el reglamento del truco argentino (ASART y reglamentos públicos de t
 - Gana quien toma **2 de 3 rondas**. **Pardas**: si se empata la primera, decide la segunda; si se empata la segunda, gana quien ganó la primera; si se empata la tercera, vuelve a quien ganó la primera; con tres pardas gana el **mano**. El valor de la mano no se duplica por una parda.
 - **Envido**: 20 + las dos cartas del mismo palo más altas; sin pareja, vale la carta mayor. Las figuras valen 0. El empate lo gana el mano.
 - **Iniciar** un envido se puede hasta que quien canta tira su primera carta (el pie puede cantar después de que tiró el mano) y nunca después de haber querido el truco. **Responder** un envido ajeno sí se puede aunque ya se haya tirado la primera carta: el reglamento dice que los rivales pueden contestar «aunque ya hayan jugado su primera carta».
-- Cadena: **envido +2 → envido envido +2 (4 en total) → real envido +3 (7) → falta**. «Envido envido» es la respuesta «envido» a un envido: **un solo canto**, no una opción adicional. Después del real sólo se puede cantar falta; después de envido envido se puede seguir con real o falta. No se puede bajar ni repetir, y no se canta más después de querer.
+- Cadena: **envido +2 → envido envido +2 (4 en total) → real envido +3 (7) → falta**. «Envido envido» es la respuesta «envido» a un envido: **un solo canto**, no una opción adicional. Según ARCAT/CASI, después de **envido o real envido** se pueden dar las cinco respuestas (quiero, envido, real, falta, no quiero); el segundo «envido» es único, así que tras envido envido (o tras un segundo envido cualquiera) quedan real y falta. No se puede bajar ni cantar más después de querer.
 - Cada palabra «envido» suma 2 a los **tantos en juego**; el real suma 3. Se pagan al cerrar la mano y no cortan el juego.
 - **Falta envido**: reemplaza todos los tantos en juego y vale lo que le falta **a quien va ganando** para llegar a 15. Con empate, valen 15 para ambos.
-- Rechazar un canto da el valor de la cadena **sin el último canto** (o **1** si era el primero). Ejemplos: real directo rechazado = 1; envido + envido rechazado = 2; envido + real rechazado = 2; envido + envido + real rechazado = 4. No cierra la mano.
+- Rechazar un canto da el valor de la cadena **sin el último canto** (o **1** si era el primero). Ejemplos: real directo rechazado = 1; envido + envido rechazado = 2; envido + real rechazado = 2; real + envido rechazado = 3; envido + envido + real rechazado = 4; real + envido + envido rechazado = 5. No cierra la mano.
 - Quien gana el envido canta sus tantos y muestra sus cartas al final de la mano; antes de eso el rival no ve ni el resultado ni las cartas.
 - Si te cantan truco antes de tirar la primera carta, podés responder **envido va primero**: se resuelve el envido y después vuelve el truco pendiente.
 - **Truco → retruco → vale cuatro**: la mano vale **2 / 3 / 4** puntos. Rechazar da **1 / 2 / 3** a quien cantó y cierra la mano. Quien recibió el canto puede subir incluso después de aceptar.
@@ -135,7 +136,7 @@ No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son v
 src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
-tests/        tests del motor, la IA y el servidor con Vitest (73 pruebas)
+tests/        tests del motor, la IA y el servidor con Vitest (79 pruebas)
 ```
 
 El servidor es autoritativo en online: el cliente envía solo acciones y recibe una **vista privada** del estado (sin la mano del rival ni el envido sin resolver).

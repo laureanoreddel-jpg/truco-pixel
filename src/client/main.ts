@@ -27,6 +27,7 @@ let hits: HitBox[] = [];
 let notice = '';
 let hover: string | null = null;
 let helpReturn: Screen = 'menu';
+let helpPage = 0;
 let noticeTimer: number | undefined;
 let aiTimer: number | undefined;
 let room = { code: '', status: 'Conectando al servidor...', connected: false, token: '' };
@@ -45,7 +46,7 @@ function render(): void {
   } else if (screen === 'online') {
     hits = renderer.drawOnline(room, hover);
   } else if (screen === 'help') {
-    hits = renderer.drawHelp(hover);
+    hits = renderer.drawHelp(hover, helpPage);
   } else if (game) {
     hits = renderer.drawGame(game.getState(), { human, mode, legal, notice, hover });
   }
@@ -212,6 +213,11 @@ function handleHit(id: string): void {
     render();
     return;
   }
+  if (id === 'help:prev' || id === 'help:next') {
+    helpPage = (helpPage + (id === 'help:next' ? 1 : Renderer.pageCount() - 1)) % Renderer.pageCount();
+    render();
+    return;
+  }
   if (id === 'help:back') {
     screen = helpReturn;
     render();
@@ -302,6 +308,11 @@ window.addEventListener('keydown', (event) => {
       helpReturn = screen;
       screen = 'help';
     }
+    render();
+    return;
+  }
+  if (screen === 'help' && (key === 'arrowleft' || key === 'arrowright')) {
+    helpPage = (helpPage + (key === 'arrowright' ? 1 : Renderer.pageCount() - 1)) % Renderer.pageCount();
     render();
     return;
   }

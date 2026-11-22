@@ -477,7 +477,7 @@ export function clientStateFor(state: GameState, viewer: PlayerIndex): GameState
     if (copy.lastHand) copy.lastHand.envido = undefined;
   }
   const maskEnvido = (text: string): string =>
-    revealEnvido ? text : text.replace(/Envidio \d+(?: \([^)]*\))?/g, 'Envidio resuelto');
+    revealEnvido ? text : text.replace(/Envido \d+(?: \([^)]*\))?/g, 'Envido resuelto');
   copy.lastEvent = namesForViewer(maskEnvido(copy.lastEvent), viewer);
   copy.log = copy.log.map((line) => namesForViewer(maskEnvido(line), viewer));
   return copy;

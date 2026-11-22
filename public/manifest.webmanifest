@@ -1,0 +1,19 @@
+{
+  "name": "Falta envido y Trucooo",
+  "short_name": "Truco Pixel",
+  "description": "Truco argentino pixel art contra IA o con un amigo online.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#120e1a",
+  "theme_color": "#1e130d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

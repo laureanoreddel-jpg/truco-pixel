@@ -145,8 +145,10 @@ export class TrucoGame {
   }
 
   /**
-   * Para responder un envido ajeno alcanza con no haber querido el truco:
-   * quien ya tiró su primera carta puede aceptar o subir la cadena.
+   * Reglamento: no se puede *iniciar* un envido con la primera carta ya tirada,
+   * pero quien ya tiró sí puede *responder* un envido ajeno ("los otros tienen
+   * la posibilidad de responderle, aunque ya hayan jugado su primera carta").
+   * `canOpenEnvido` controla el inicio; acá sólo habilitamos la respuesta.
    */
   private canRaiseEnvido(_player: PlayerIndex): boolean {
     return this.state.envidoStatus === 'called' && !this.acceptedTruco(_player);
@@ -156,12 +158,14 @@ export class TrucoGame {
     const calls: EnvidoCall[] = bids.length === 0
       ? ['envido', 'real', 'falta']
       : envidoRaisesFor(bids);
-    const actions = calls.map((call) => envidoActionForCall(call));
-    // Segundo «envido»: mismo canto que el botón de envido, con nombre propio.
-    if (envidoWordCount(bids) === 1 && bids[bids.length - 1]?.call === 'envido') {
-      actions.push({ type: 'callEnvidoEnvido' });
-    }
-    return actions;
+    return calls.map((call) => {
+      // El segundo «envido» se llama «envido envido» y es UNA sola opción
+      // (2 + 2 = 4). No se ofrece también «envido»: sería el mismo canto dos veces.
+      if (call === 'envido' && bids.length > 0 && envidoWordCount(bids) === 1) {
+        return { type: 'callEnvidoEnvido' } as GameAction;
+      }
+      return envidoActionForCall(call);
+    });
   }
 
   private openEnvido(player: PlayerIndex, call: EnvidoCall, bids: EnvidoBid[]): boolean {

@@ -107,6 +107,8 @@ let reconnectTimer: number | undefined;
 let reconnectAttempts = 0;
 let opponentDisconnected = false;
 let inputWasActive = false;
+let envidoOpen = false;
+let lastActionSignature = '';
 const inviteCode = new URLSearchParams(location.search).get('sala');
 let pendingInvite = inviteCode ? inviteCode.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6) : null;
 const srStatus = document.getElementById('sr-status');
@@ -143,8 +145,30 @@ function syncRoomInput(): void {
   }
 }
 
+/** Cambia quando reparten, cierra una ronda o llega un canto: cierra cualquier submenú abierto. */
+function actionSignature(state: GameState): string {
+  return [
+    state.handNumber,
+    state.round,
+    state.phase,
+    state.turn,
+    state.pending?.kind ?? '-',
+    state.pending?.kind === 'envido' ? state.pending.bids.length : 0,
+    state.pending?.kind === 'truco' ? state.pending.level : 0,
+  ].join(':');
+}
+
 function render(): void {
   syncRoomInput();
+  if (screen !== 'game' || !game || game.state.phase !== 'playing') {
+    envidoOpen = false;
+  } else {
+    const signature = actionSignature(game.state);
+    if (signature !== lastActionSignature) {
+      lastActionSignature = signature;
+      envidoOpen = false;
+    }
+  }
   if (screen === 'menu') {
     hits = renderer.drawMenu(difficulty, hover, audio.enabled);
   } else if (screen === 'online') {
@@ -168,6 +192,7 @@ function render(): void {
       sound: audio.enabled,
       taunt: storyTaunt,
       disconnected: mode === 'online' && opponentDisconnected,
+      envidoOpen,
     });
   }
 
@@ -465,6 +490,16 @@ function confirmJoin(code: string): void {
 
 function handleHit(id: string): void {
   audio.click();
+  if (id === 'ui:envido') {
+    envidoOpen = !envidoOpen;
+    render();
+    return;
+  }
+  if (id === 'ui:envido:close') {
+    envidoOpen = false;
+    render();
+    return;
+  }
   if (id.startsWith('diff:')) {
     difficulty = id.slice(5) as Difficulty;
     storageSet('truco-dificultad', difficulty);
@@ -629,6 +664,11 @@ window.addEventListener('keydown', (event) => {
     return;
   }
   const key = event.key.toLowerCase();
+  if (key === 'escape' && envidoOpen) {
+    envidoOpen = false;
+    render();
+    return;
+  }
   if (key === 'escape' && screen === 'help') {
     screen = helpReturn;
     render();

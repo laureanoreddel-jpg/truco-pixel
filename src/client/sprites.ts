@@ -17,6 +17,8 @@ export const COLORS = {
   blue: '#3d8bd8',
   green: '#28c76f',
   gray: '#9c94a0',
+  /** Gris oscuro para texto sobre papel claro: cumple contraste sin romper la paleta. */
+  mutedInk: '#5f5866',
   white: '#ffffff',
   shadow: '#000000',
   panel: '#160f14',
@@ -97,6 +99,9 @@ const FONT: Record<string, string[]> = {
   '¿': ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'],
   '¡': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
   '*': ['.....', '#.#.#', '.###.', '#####', '.###.', '#.#.#', '.....'],
+  '→': ['.....', '....#', '..###', '#####', '..###', '....#', '.....'],
+  '·': ['.....', '.....', '.....', '..#..', '.....', '.....', '.....'],
+  '…': ['.....', '.....', '.....', '.....', '.....', '.....', '.#.#.'],
 };
 
 /** Las mayúsculas acentuadas conservan su marca en la fila superior del glifo. */
@@ -772,15 +777,12 @@ export function drawRivalAction(
   }
   if (mood.thinking) px(24, 15, 2, 4, '#aa6a3c'); // mechón al pensar
 
-  // Cartelito con el nombre del rival, arriba para no tapar el historial.
+  // Cartelito con el nombre del rival en la misma tipografía bitmap del juego.
   const label = name.toUpperCase().slice(0, 12);
-  ctx.font = 'bold 7px monospace';
-  const tw = ctx.measureText(label).width;
+  const tw = textWidth(label);
   ctx.fillStyle = 'rgba(10,7,14,0.9)';
   ctx.fillRect(x + 18 * s - tw / 2 - 3, top - 13, tw + 6, 10);
-  ctx.fillStyle = '#ffd166';
-  ctx.fillText(label, x + 18 * s - tw / 2, top - 6);
-  ctx.font = '8px sans-serif';
+  drawTextShadow(ctx, label, x + 18 * s - tw / 2, top - 12, '#ffd166');
 }
 
 /**

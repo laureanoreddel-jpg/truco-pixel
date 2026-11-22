@@ -1,5 +1,12 @@
 import { chooseAiAction, type Difficulty } from '../core/ai';
 import { TrucoGame } from '../core/game';
+import {
+  isStoryUnlocked,
+  loadStoryProgress,
+  markStoryWin,
+  saveStoryProgress,
+  STORY_OPPONENTS,
+} from '../core/story';
 import { other, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import { AudioFx } from './audio';
 import { NetClient, type ServerMessage } from './net';
@@ -14,12 +21,16 @@ const renderer = new Renderer(ctx, canvas.width, canvas.height);
 const audio = new AudioFx();
 const net = new NetClient();
 
-type Screen = 'menu' | 'online' | 'game' | 'help';
-type Mode = 'local' | 'online';
+type Screen = 'menu' | 'online' | 'story' | 'storyIntro' | 'storyResult' | 'game' | 'help';
+type Mode = 'local' | 'online' | 'story';
 
 let screen: Screen = 'menu';
 let mode: Mode = 'local';
 let difficulty: Difficulty = 'medio';
+let storyProgress = loadStoryProgress();
+let storyIndex = Math.min(storyProgress, STORY_OPPONENTS.length - 1);
+let storyWon = false;
+let storyResultTimer: number | undefined;
 let game: TrucoGame | null = null;
 let human: PlayerIndex = 0;
 let legal: GameAction[] = [];
@@ -47,8 +58,21 @@ function render(): void {
     hits = renderer.drawOnline(room, hover);
   } else if (screen === 'help') {
     hits = renderer.drawHelp(hover, helpPage);
+  } else if (screen === 'story') {
+    hits = renderer.drawStoryMap(storyProgress, storyIndex, hover);
+  } else if (screen === 'storyIntro') {
+    hits = renderer.drawStoryIntro(STORY_OPPONENTS[storyIndex], storyIndex, hover);
+  } else if (screen === 'storyResult') {
+    hits = renderer.drawStoryResult(STORY_OPPONENTS[storyIndex], storyIndex, storyWon, storyProgress, hover);
   } else if (game) {
-    hits = renderer.drawGame(game.getState(), { human, mode, legal, notice, hover });
+    hits = renderer.drawGame(game.getState(), {
+      human,
+      mode,
+      legal,
+      notice,
+      hover,
+      opponent: mode === 'story' ? STORY_OPPONENTS[storyIndex] : undefined,
+    });
   }
 }
 
@@ -73,9 +97,45 @@ function startLocal(): void {
   render();
 }
 
+function goStoryMap(): void {
+  stopAi();
+  if (storyResultTimer) window.clearTimeout(storyResultTimer);
+  storyResultTimer = undefined;
+  hover = null;
+  screen = 'story';
+  mode = 'local';
+  game = null;
+  storyIndex = Math.min(storyIndex, STORY_OPPONENTS.length - 1);
+  render();
+}
+
+function openStoryIntro(index: number): void {
+  if (!isStoryUnlocked(storyProgress, index)) return;
+  stopAi();
+  hover = null;
+  storyIndex = index;
+  screen = 'storyIntro';
+  render();
+}
+
+function startStoryGame(index: number): void {
+  if (!isStoryUnlocked(storyProgress, index)) return;
+  stopAi();
+  hover = null;
+  mode = 'story';
+  human = 0;
+  storyIndex = index;
+  game = new TrucoGame(Date.now());
+  screen = 'game';
+  updateLegal();
+  audio.click();
+  render();
+  scheduleAi();
+}
+
 function scheduleAi(): void {
   stopAi();
-  if (!game || mode !== 'local') return;
+  if (!game || (mode !== 'local' && mode !== 'story')) return;
   const s = game.state;
   // El cierre de mano lo decide el jugador con el botón "SIGUIENTE MANO".
   if (s.phase === 'gameEnd' || s.phase === 'handEnd') return;
@@ -84,9 +144,10 @@ function scheduleAi(): void {
 
   aiTimer = window.setTimeout(() => {
     aiTimer = undefined;
-    if (!game || mode !== 'local') return;
+    if (!game || (mode !== 'local' && mode !== 'story')) return;
     const player = game.state.pending ? other(game.state.pending.by) : game.state.turn;
-    const action = chooseAiAction(game, player, difficulty);
+    const level = mode === 'story' ? STORY_OPPONENTS[storyIndex].difficulty : difficulty;
+    const action = chooseAiAction(game, player, level);
     if (game.dispatch(player, action)) afterAction(action);
     scheduleAi();
   }, 620);
@@ -97,14 +158,28 @@ function afterAction(action: GameAction): void {
   if (action.type === 'playCard') audio.card();
   else if (action.type === 'callTruco' || action.type === 'raiseTruco' || action.type === 'acceptTruco') audio.truco();
   if (game?.state.phase === 'gameEnd') {
-    if (game.state.winner === human) audio.win();
+    const won = game.state.winner === human;
+    if (won) audio.win();
     else audio.lose();
+    if (mode === 'story' && screen === 'game') {
+      storyWon = won;
+      if (won) {
+        storyProgress = markStoryWin(storyProgress, storyIndex);
+        saveStoryProgress(storyProgress);
+      }
+      if (storyResultTimer) window.clearTimeout(storyResultTimer);
+      storyResultTimer = window.setTimeout(() => {
+        storyResultTimer = undefined;
+        screen = 'storyResult';
+        render();
+      }, 1100);
+    }
   }
   render();
 }
 
 function dispatchLocal(action: GameAction): void {
-  if (!game || mode !== 'local') return;
+  if (!game || (mode !== 'local' && mode !== 'story')) return;
   if (game.dispatch(human, action)) {
     afterAction(action);
     scheduleAi();
@@ -191,6 +266,8 @@ function dispatchOnline(action: GameAction): void {
 
 function goMenu(): void {
   stopAi();
+  if (storyResultTimer) window.clearTimeout(storyResultTimer);
+  storyResultTimer = undefined;
   net.close();
   hover = null;
   screen = 'menu';
@@ -205,8 +282,22 @@ function handleHit(id: string): void {
     render();
     return;
   }
+  if (id === 'menu:story') return goStoryMap();
   if (id === 'menu:local') return startLocal();
   if (id === 'menu:online') return startOnline();
+  if (id.startsWith('story:select:')) {
+    const index = Number(id.slice(13));
+    if (isStoryUnlocked(storyProgress, index)) {
+      storyIndex = index;
+      render();
+    }
+    return;
+  }
+  if (id === 'story:play') return openStoryIntro(storyIndex);
+  if (id === 'story:start') return startStoryGame(storyIndex);
+  if (id === 'story:map') return goStoryMap();
+  if (id === 'story:retry') return openStoryIntro(storyIndex);
+  if (id === 'story:next') return openStoryIntro(Math.min(STORY_OPPONENTS.length - 1, storyIndex + 1));
   if (id === 'menu:help' || id === 'game:help') {
     helpReturn = screen;
     screen = 'help';
@@ -248,7 +339,7 @@ function handleHit(id: string): void {
   if (id.startsWith('card:')) {
     const cardId = id.slice(5);
     const action = { type: 'playCard', cardId } satisfies GameAction;
-    if (mode === 'local') dispatchLocal(action);
+    if (mode === 'local' || mode === 'story') dispatchLocal(action);
     else dispatchOnline(action);
     return;
   }
@@ -256,7 +347,7 @@ function handleHit(id: string): void {
     const type = id.slice(7) as GameAction['type'];
     const action = legal.find((a) => a.type === type);
     if (!action) return;
-    if (mode === 'local') dispatchLocal(action);
+    if (mode === 'local' || mode === 'story') dispatchLocal(action);
     else dispatchOnline(action);
   }
 }
@@ -299,7 +390,8 @@ canvas.addEventListener('pointerleave', () => {
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (key === 'escape' && screen !== 'menu') {
-    goMenu();
+    if (screen === 'storyIntro' || screen === 'storyResult') goStoryMap();
+    else goMenu();
     return;
   }
   if (key === 'h') {
@@ -323,7 +415,7 @@ window.addEventListener('keydown', (event) => {
     const card = game.state.hands[human][cardIndex];
     const action = card && legal.find((a) => a.type === 'playCard' && a.cardId === card.id);
     if (action) {
-      if (mode === 'local') dispatchLocal(action);
+      if (mode === 'local' || mode === 'story') dispatchLocal(action);
       else dispatchOnline(action);
     }
     return;
@@ -345,7 +437,7 @@ window.addEventListener('keydown', (event) => {
   event.preventDefault();
   const action = types.map((type) => legal.find((a) => a.type === type)).find(Boolean);
   if (action) {
-    if (mode === 'local') dispatchLocal(action);
+    if (mode === 'local' || mode === 'story') dispatchLocal(action);
     else dispatchOnline(action);
   }
 });

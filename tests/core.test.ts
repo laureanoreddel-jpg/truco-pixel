@@ -4,7 +4,7 @@ import { createDeck } from '../src/core/deck';
 import { TrucoGame } from '../src/core/game';
 import { cardStrength, declinePoints, envidoScore, strengthTier, trucoPoints } from '../src/core/hand';
 import { isStoryUnlocked, markStoryWin, STORY_OPPONENTS } from '../src/core/story';
-import type { Card, Rank, Suit } from '../src/core/types';
+import type { Card, GameAction, Rank, Suit } from '../src/core/types';
 
 const card = (rank: Rank, suit: Suit): Card => ({ id: `${rank}-${suit}`, rank, suit });
 
@@ -171,7 +171,10 @@ describe('flujo de juego', () => {
   it('envido respondido con envido vale 4 y su rechazo da 2 puntos', () => {
     const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
     game.dispatch(0, { type: 'callEnvido' });
-    expect(game.legalActions(1).map((action) => action.type)).toContain('callEnvidoEnvido');
+    const response = game.legalActions(1).map((action) => action.type);
+    expect(response).toContain('callEnvidoEnvido');
+    // El segundo «envido» es una sola opción: no se ofrece también «callEnvido».
+    expect(response).not.toContain('callEnvido');
     game.dispatch(1, { type: 'callEnvidoEnvido' });
     expect(game.state.pending).toMatchObject({ bid: 2, potAfter: 4, decline: 2 });
     game.dispatch(0, { type: 'acceptEnvido' });
@@ -221,14 +224,14 @@ describe('flujo de juego', () => {
     expect(game.legalActions(1).map((action) => action.type)).toContain('callEnvido');
     game.dispatch(1, { type: 'callEnvido' });
     expect(game.state.pending).toMatchObject({ kind: 'envido', by: 1 });
-    // Según el reglamento, quien ya tiró su primera carta puede responder el envido.
+    // Reglamento: no puede *iniciar* envido con su carta tirada, pero sí responder.
+    // Y el segundo «envido» aparece una sola vez, como «envido envido».
     expect(game.legalActions(0).map((action) => action.type)).toEqual([
       'acceptEnvido',
       'declineEnvido',
-      'callEnvido',
+      'callEnvidoEnvido',
       'callRealEnvido',
       'callFalta',
-      'callEnvidoEnvido',
     ]);
   });
 
@@ -337,7 +340,7 @@ describe('flujo de juego', () => {
     expect(game.legalActions(0).map((a) => a.type)).not.toContain('callEnvidoEnvido');
     game.dispatch(0, { type: 'callEnvido' });
     const afterEnvido = game.legalActions(1).map((a) => a.type);
-    expect(afterEnvido).toContain('callEnvido');
+    expect(afterEnvido).not.toContain('callEnvido');
     expect(afterEnvido).toContain('callEnvidoEnvido');
     expect(afterEnvido).toContain('callRealEnvido');
     expect(afterEnvido).toContain('callFalta');
@@ -349,6 +352,52 @@ describe('flujo de juego', () => {
     expect(afterReal).toContain('callFalta');
     game.dispatch(0, { type: 'callFalta' });
     expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido']);
+  });
+
+  it('después de envido envido se puede seguir con real envido y falta', () => {
+    const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
+    game.state.scores = [8, 2];
+    game.dispatch(0, { type: 'callEnvido' });
+    game.dispatch(1, { type: 'callEnvidoEnvido' });
+    const afterDoble = game.legalActions(0).map((a) => a.type);
+    expect(afterDoble).not.toContain('callEnvido');
+    expect(afterDoble).not.toContain('callEnvidoEnvido');
+    expect(afterDoble).toContain('callRealEnvido');
+    expect(afterDoble).toContain('callFalta');
+    game.dispatch(0, { type: 'callRealEnvido' });
+    expect(game.state.pending).toMatchObject({ potAfter: 7, decline: 4 });
+    expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido', 'callFalta']);
+    game.dispatch(1, { type: 'declineEnvido' });
+    expect(game.state.scores[0]).toBe(12);
+    expect(game.state.phase).toBe('playing');
+  });
+
+  it('el rechazo paga la cadena ya aceptada según la tabla del reglamento', () => {
+    const build = () => setup([
+      [card(7, 'oro'), card(6, 'oro'), card(3, 'copa')],
+      [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')],
+    ]);
+    const chains: Array<{ bids: GameAction[]; points: number }> = [
+      { bids: [{ type: 'callEnvido' }], points: 1 },
+      { bids: [{ type: 'callEnvido' }, { type: 'callEnvidoEnvido' }], points: 2 },
+      { bids: [{ type: 'callEnvido' }, { type: 'callRealEnvido' }], points: 2 },
+      {
+        bids: [{ type: 'callEnvido' }, { type: 'callEnvidoEnvido' }, { type: 'callRealEnvido' }],
+        points: 4,
+      },
+    ];
+    for (const { bids, points } of chains) {
+      const game = build();
+      for (const action of bids) {
+        const actor = game.state.pending ? (game.state.pending.by === 0 ? 1 : 0) : game.state.turn;
+        expect(game.dispatch(actor, action)).toBe(true);
+      }
+      const caller = game.state.pending!.by;
+      const responder: 0 | 1 = caller === 0 ? 1 : 0;
+      expect(game.dispatch(responder, { type: 'declineEnvido' })).toBe(true);
+      expect(game.state.scores[caller]).toBe(points);
+      expect(game.state.phase).toBe('playing');
+    }
   });
 
   it('el envido va primero y el truco queda diferido', () => {

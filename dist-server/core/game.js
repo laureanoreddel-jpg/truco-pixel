@@ -117,7 +117,7 @@ class TrucoGame {
     canRaiseEnvido(_player) {
         return this.state.envidoStatus === 'called' && !this.acceptedTruco(_player);
     }
-    envidoActions(player, bids) {
+    envidoActions(bids) {
         const calls = bids.length === 0
             ? ['envido', 'real', 'falta']
             : (0, hand_1.envidoRaisesFor)(bids);
@@ -184,12 +184,12 @@ class TrucoGame {
                     actions.push({ type: 'raiseTruco' });
                 // El rival puede exigir que el envido se resuelva antes que el truco.
                 if (this.canOpenEnvido(player))
-                    actions.push(...this.envidoActions(player, []));
+                    actions.push(...this.envidoActions([]));
                 return actions;
             }
             const actions = [{ type: 'acceptEnvido' }, { type: 'declineEnvido' }];
             if (this.canRaiseEnvido(player))
-                actions.push(...this.envidoActions(player, s.pending.bids));
+                actions.push(...this.envidoActions(s.pending.bids));
             return actions;
         }
         if (s.turn !== player)
@@ -202,7 +202,7 @@ class TrucoGame {
             actions.push({ type: 'raiseTruco' });
         actions.push({ type: 'fold' });
         if (this.canOpenEnvido(player))
-            actions.push(...this.envidoActions(player, []));
+            actions.push(...this.envidoActions([]));
         return actions;
     }
     dispatch(player, action) {
@@ -405,8 +405,10 @@ class TrucoGame {
             truco: { winner: handWinner, points: handPoints },
         };
         this.checkGameEnd();
+        let handPointsAwarded = false;
         if (s.phase !== 'gameEnd') {
             this.award(handWinner, handPoints);
+            handPointsAwarded = true;
             this.checkGameEnd();
         }
         if (s.phase !== 'gameEnd')
@@ -414,7 +416,12 @@ class TrucoGame {
         const parts = [];
         if (envido)
             parts.push(`envido: ${types_1.PLAYER_NAMES[envido.winner]} +${envido.prize}`);
-        parts.push(`${reason}: ${types_1.PLAYER_NAMES[handWinner]} +${handPoints}`);
+        // Si el envido definió la partida, los puntos de la mano no se anotan:
+        // anunciarlos sería engañoso.
+        if (handPointsAwarded)
+            parts.push(`${reason}: ${types_1.PLAYER_NAMES[handWinner]} +${handPoints}`);
+        if (s.phase === 'gameEnd' && s.winner !== null)
+            parts.push(`partida: gana ${types_1.PLAYER_NAMES[s.winner]}`);
         s.lastEvent = parts.join(' · ');
         this.log(s.lastEvent);
     }

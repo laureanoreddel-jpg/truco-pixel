@@ -5,12 +5,14 @@ import {
   CARD_H,
   CARD_W,
   COLORS,
+  drawAvatar,
   drawBadge,
   drawButton,
   drawCard,
   drawCardBack,
   drawPanel,
   drawSparkle,
+  drawSuit,
   drawText,
   drawTextCentered,
   drawTextCenteredShadow,
@@ -274,6 +276,15 @@ export class Renderer {
     this.ctx.restore();
   }
 
+  private handCard(card: Card, x: number, y: number, angle: number, highlight: boolean, keyHint: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
+    ctx.rotate(angle);
+    drawCard(ctx, card, -CARD_W / 2, -CARD_H / 2, highlight, 0, keyHint, strengthTier(card));
+    ctx.restore();
+  }
+
   private dim(alpha: number, fromY = 0): void {
     this.ctx.fillStyle = `rgba(8, 5, 13, ${alpha})`;
     this.ctx.fillRect(0, fromY, this.width, this.height - fromY);
@@ -423,23 +434,25 @@ export class Renderer {
     const hover = view.hover;
     const defs = actionDefs(state, human);
 
-    // ---------- Marcadores mínimos ----------
+    // ---------- Placas de marcador ----------
     const humanTurn = state.phase === 'playing' && !state.pending && state.turn === human;
-    this.panel(8, 6, 88, 20, 'rgba(10,20,16,0.9)', humanTurn ? COLORS.green : COLORS.gold);
-    drawText(ctx, `VOS ${String(state.scores[human]).padStart(2, '0')}`, 14, 11, COLORS.green, 2);
+    this.panel(6, 4, 104, 24, 'rgba(18,13,10,0.94)', humanTurn ? COLORS.green : COLORS.goldDark);
+    drawAvatar(ctx, 'player', 10, 10, 1);
+    drawText(ctx, String(state.scores[human]).padStart(2, '0'), 28, 8, COLORS.green, 2);
 
-    this.panel(W - 108, 6, 100, 20, 'rgba(24,12,16,0.9)', state.turn === rival ? COLORS.red : COLORS.gold);
-    drawText(ctx, `${rivalLabel} ${String(state.scores[rival]).padStart(2, '0')}`, W - 102, 11, COLORS.red, 2);
+    this.panel(W - 110, 4, 104, 24, 'rgba(18,13,10,0.94)', state.turn === rival ? COLORS.red : COLORS.goldDark);
+    drawAvatar(ctx, view.mode === 'local' ? 'rival' : 'player', W - 22, 10, 1);
+    rightText(ctx, String(state.scores[rival]).padStart(2, '0'), W - 30, 8, COLORS.red, 2);
 
-    drawTextCentered(ctx, `MANO ${String(state.handNumber).padStart(2, '0')}`, W / 2, 6, COLORS.cream);
-    drawTextCentered(ctx, `A ${state.targetScore}`, W / 2, 17, COLORS.gray);
+    drawTextCentered(ctx, `MANO ${String(state.handNumber).padStart(2, '0')}`, W / 2, 5, COLORS.cream);
+    drawTextCentered(ctx, `A ${state.targetScore} PUNTOS`, W / 2, 17, COLORS.gray);
 
     let bx = 184;
     if (state.trucoLevel > 0) bx += drawBadge(ctx, `TRUCO ${state.trucoLevel}`, bx, 30, COLORS.redDark) + 5;
     if (state.envidoPot > 0) bx += drawBadge(ctx, `BOLSA ${state.envidoPot}`, bx, 30, COLORS.pink) + 5;
     if (state.envidoResult) drawBadge(ctx, `ENV ${state.envidoResult.prize}`, bx, 30, COLORS.goldDark);
 
-    // Tres puntos: verde ganaste, rojo perdió, dorado empató, gris sin jugar.
+    // Tres puntos con borde: verde ganaste, rojo perdió, dorado empató.
     for (let r = 0; r < 3; r++) {
       const round = state.played[r];
       let color = COLORS.panelLight;
@@ -447,8 +460,10 @@ export class Renderer {
         const w = this.roundWinnerForDisplay(round[0], round[1]);
         color = w === 'EMP' ? COLORS.goldDark : (w === 'P1') === (human === 0) ? COLORS.green : COLORS.red;
       }
+      ctx.fillStyle = COLORS.shadow;
+      ctx.fillRect(229 + r * 10, 44, 9, 9);
       ctx.fillStyle = color;
-      ctx.fillRect(230 + r * 9, 46, 6, 6);
+      ctx.fillRect(230 + r * 10, 45, 7, 7);
     }
 
     hits.push({ id: 'game:help', x: 8, y: 32, w: 16, h: 16 });
@@ -480,8 +495,9 @@ export class Renderer {
     }
 
     // Tu envido siempre a la vista, el del rival nunca.
-    this.panel(8, 240, 86, 18, 'rgba(12,24,20,0.85)', COLORS.pink);
-    drawText(ctx, `ENV ${envidoScore(state.hands[human]).points}`, 14, 245, COLORS.pink);
+    this.panel(8, 238, 92, 20, COLORS.woodDark, COLORS.pink);
+    drawSuit(ctx, 'oro', 13, 244, 1, COLORS.pink);
+    drawText(ctx, `${envidoScore(state.hands[human]).points}`, 25, 243, COLORS.pink, 2);
 
     // ---------- Botones: centro si son pocos, laterales si son muchos ----------
     const labels: ActionDef[] = [];
@@ -513,28 +529,32 @@ export class Renderer {
       }
     }
 
-    // ---------- Tus cartas, al borde de la mesa ----------
+    // ---------- Tus cartas, abanicadas sobre el borde de la mesa ----------
     const hand = state.hands[human];
-    const spacing = 56;
+    const spacing = 60;
     const startX = Math.round((W - ((hand.length - 1) * spacing + CARD_W)) / 2);
+    const angles = [-0.11, 0, 0.11];
     const hoveredIndex = hand.findIndex((card) => hover === `card:${card.id}`);
     hand.forEach((card, i) => {
       const x = startX + i * spacing;
       const canPlay = view.legal.some((a) => a.type === 'playCard' && a.cardId === card.id);
       const isHover = i === hoveredIndex;
-      const y = 210 + (i === 1 ? -6 : 0) - (isHover && canPlay ? 8 : 0);
-      this.scaledCard(card, x, y, 1, canPlay || isHover, 0, i, strengthTier(card));
-      if (canPlay) hits.push({ id: `card:${card.id}`, x, y: y - 8, w: CARD_W, h: CARD_H + 8 });
+      const y = 208 + (i === 1 ? -8 : 2) - (isHover && canPlay ? 10 : 0);
+      this.handCard(card, x, y, angles[i] ?? 0, canPlay || isHover, i);
+      if (canPlay) hits.push({ id: `card:${card.id}`, x: x - 4, y: y - 10, w: CARD_W + 8, h: CARD_H + 12 });
     });
 
-    // Tooltip breve: solo cuando señalás una carta.
+    // Tooltip tipo papelito: solo cuando señalás una carta.
     if (hoveredIndex >= 0) {
       const card = hand[hoveredIndex];
       const tier = strengthTier(card);
-      const x = Math.max(8, Math.min(W - 188, startX + hoveredIndex * spacing - 40));
-      this.panel(x, 166, 180, 38, COLORS.woodDark, COLORS.gold, true);
-      drawText(ctx, cardLabel(card).toUpperCase(), x + 7, 171, tierColor(tier));
-      rightText(ctx, `PUESTO ${tier}/14`, x + 173, 171, COLORS.gray);
+      const x = Math.max(8, Math.min(W - 198, startX + hoveredIndex * spacing - 70));
+      this.panel(x, 148, 190, 40, COLORS.paper, COLORS.goldDark, true);
+      ctx.fillStyle = COLORS.gold;
+      ctx.fillRect(x + 92, 146, 6, 4);
+      drawText(ctx, clip(cardLabel(card).toUpperCase(), 25), x + 8, 153, COLORS.ink);
+      ctx.fillStyle = tierColor(tier);
+      ctx.fillRect(x + 174, 154, 8, 8);
       const rivalCard = shownPlayed[rival];
       const comparison = !rivalCard
         ? 'SIN RIVAL'
@@ -543,7 +563,8 @@ export class Renderer {
           : cardStrength(card) < cardStrength(rivalCard)
             ? 'PIERDE'
             : 'EMPATA';
-      drawText(ctx, `${tierShort(tier)} | ENV +${card.rank <= 7 ? card.rank : 0} | ${comparison}`, x + 7, 188, COLORS.cream);
+      drawText(ctx, `${tierShort(tier)}  ENV +${card.rank <= 7 ? card.rank : 0}  ${comparison}`, x + 8, 170, COLORS.ink);
+      rightText(ctx, `${tier}/14`, x + 182, 181, COLORS.gray);
     }
 
     // ---------- Cierres ----------

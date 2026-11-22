@@ -2,28 +2,30 @@ import type { Card, Suit } from '../core/types';
 
 export const COLORS = {
   wood: '#3b2618',
-  woodLight: '#6b4426',
-  woodDark: '#24170f',
-  felt: '#1f6b4f',
-  feltDark: '#14513c',
-  feltLight: '#2c8462',
-  cream: '#fff3d6',
-  paper: '#fffdf2',
-  ink: '#1b1520',
-  red: '#e45756',
-  redDark: '#8e2f31',
+  woodLight: '#7a4f2c',
+  woodDark: '#1e130d',
+  felt: '#1c6b50',
+  feltDark: '#104333',
+  feltLight: '#2f8e69',
+  cream: '#fff4d6',
+  paper: '#fffdf4',
+  ink: '#171220',
+  red: '#e8504f',
+  redDark: '#8f2a32',
   gold: '#ffd166',
+  goldDark: '#a9782b',
   blue: '#4ea8de',
-  green: '#57cc99',
+  green: '#5fd39b',
   gray: '#a6a0b0',
   white: '#ffffff',
-  shadow: '#0d0a12',
-  panel: '#241b30',
-  panelLight: '#3a2c4a',
+  shadow: '#0a0710',
+  panel: '#2a2038',
+  panelLight: '#453354',
   pink: '#f497b8',
+  navy: '#1b2a44',
 };
 
-/** Tipografía bitmap 5x7: mucho más legible que la de 3x5. */
+/** Tipografía bitmap 5x7. */
 const FONT: Record<string, string[]> = {
   A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
   B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
@@ -73,6 +75,8 @@ const FONT: Record<string, string[]> = {
   '(': ['...#.', '..#..', '.#...', '.#...', '.#...', '..#..', '...#.'],
   ')': ['..#..', '...#.', '....#', '....#', '....#', '...#.', '..#..'],
   "'": ['..#..', '..#..', '.....', '.....', '.....', '.....', '.....'],
+  '>': ['#....', '.#...', '..#..', '...#.', '..#..', '.#...', '#....'],
+  '*': ['.....', '#.#.#', '.###.', '#####', '.###.', '#.#.#', '.....'],
 };
 
 const ACCENTS: Record<string, string> = {
@@ -123,6 +127,31 @@ export function drawTextCentered(
   drawText(ctx, text, Math.round(centerX - textWidth(text, scale) / 2), y, color, scale);
 }
 
+/** Texto con contorno oscuro: se lee sobre cualquier fondo. */
+export function drawTextShadow(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  color = COLORS.cream,
+  scale = 1,
+): void {
+  drawText(ctx, text, x + scale, y + scale, COLORS.shadow, scale);
+  drawText(ctx, text, x, y, color, scale);
+}
+
+export function drawTextCenteredShadow(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  centerX: number,
+  y: number,
+  color = COLORS.cream,
+  scale = 1,
+): void {
+  const x = Math.round(centerX - textWidth(text, scale) / 2);
+  drawTextShadow(ctx, text, x, y, color, scale);
+}
+
 const SUIT_GLYPHS: Record<Suit, string[]> = {
   espada: ['..#...', '..#...', '..#...', '.###..', '..#...', '.###..', '..#...'],
   basto: ['..##..', '.##...', '##....', '.#....', '.#....', '.#....', '.#....'],
@@ -131,9 +160,9 @@ const SUIT_GLYPHS: Record<Suit, string[]> = {
 };
 
 const SUIT_COLORS: Record<Suit, string> = {
-  espada: '#5c6f82',
-  basto: '#8a9a4b',
-  oro: '#e2ad2b',
+  espada: '#54697e',
+  basto: '#93a24f',
+  oro: '#f0bc35',
   copa: '#4ea8de',
 };
 
@@ -150,40 +179,135 @@ export function drawSuit(ctx: CanvasRenderingContext2D, suit: Suit, x: number, y
 export const CARD_W = 30;
 export const CARD_H = 42;
 
-/** Panel con esquinas recortadas, estilo pixel. */
+/** Rectángulo con esquinas recortadas, estilo pixel. */
 export function pixelRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
   ctx.fillStyle = color;
   ctx.fillRect(x + 2, y, w - 4, h);
   ctx.fillRect(x, y + 2, w, h - 4);
 }
 
-export function drawCard(ctx: CanvasRenderingContext2D, card: Card, x: number, y: number, highlight = false): void {
-  const suitColor = SUIT_COLORS[card.suit];
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  pixelRect(ctx, x + 3, y + 3, CARD_W, CARD_H, 'rgba(0,0,0,0.45)');
-  pixelRect(ctx, x, y, CARD_W, CARD_H, COLORS.ink);
-  pixelRect(ctx, x + 1, y + 1, CARD_W - 2, CARD_H - 2, highlight ? COLORS.white : COLORS.paper);
-  ctx.fillStyle = suitColor;
-  ctx.fillRect(x + 3, y + 2, CARD_W - 6, 1);
-  ctx.fillRect(x + 3, y + CARD_H - 3, CARD_W - 6, 1);
+/** Panel con sombra, doble borde y brillo interior. */
+export function drawPanel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill = COLORS.panel,
+  border = COLORS.gold,
+  studs = false,
+): void {
+  pixelRect(ctx, x + 2, y + 3, w, h, 'rgba(0,0,0,0.55)');
+  pixelRect(ctx, x, y, w, h, COLORS.shadow);
+  pixelRect(ctx, x + 1, y + 1, w - 2, h - 2, border);
+  pixelRect(ctx, x + 2, y + 2, w - 4, h - 4, fill);
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.fillRect(x + 4, y + 3, w - 8, 1);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(x + 4, y + h - 4, w - 8, 1);
+  if (studs) {
+    ctx.fillStyle = border;
+    for (const [sx, sy] of [[x + 4, y + 4], [x + w - 6, y + 4], [x + 4, y + h - 6], [x + w - 6, y + h - 6]]) {
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  }
+}
 
-  drawText(ctx, String(card.rank), x + 3, y + 4, suitColor, 2, 0);
-  drawSuit(ctx, card.suit, x + CARD_W - 9, y + 5, 1);
-  drawSuit(ctx, card.suit, x + (CARD_W - 12) / 2, y + 18, 2);
-  drawSuit(ctx, card.suit, x + 3, y + CARD_H - 9, 1);
-  drawText(ctx, String(card.rank), x + CARD_W - 10, y + CARD_H - 9, suitColor, 1, 0);
+export interface ButtonStyle {
+  color?: string;
+  textColor?: string;
+  scale?: number;
+  hover?: boolean;
+  disabled?: boolean;
+}
+
+export function drawButton(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  style: ButtonStyle = {},
+): void {
+  const disabled = style.disabled ?? false;
+  const hover = style.hover ?? false;
+  const color = disabled ? '#3a3543' : style.color ?? COLORS.panelLight;
+  drawPanel(ctx, x, y, w, h, color, hover ? COLORS.gold : COLORS.shadow);
+  if (hover && !disabled) {
+    ctx.fillStyle = 'rgba(255,209,102,0.12)';
+    ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+  }
+  drawTextCenteredShadow(
+    ctx,
+    label,
+    x + w / 2,
+    y + Math.floor((h - 7 * (style.scale ?? 1)) / 2),
+    disabled ? COLORS.gray : style.textColor ?? COLORS.cream,
+    style.scale ?? 1,
+  );
+}
+
+/** Etiqueta pequeña tipo credencial. */
+export function drawBadge(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, color: string): number {
+  const w = textWidth(label) + 8;
+  drawPanel(ctx, x, y, w, 11, color, COLORS.shadow);
+  drawText(ctx, label, x + 4, y + 2, COLORS.cream);
+  return w;
+}
+
+export function drawScoreBar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  value: number,
+  target: number,
+  color: string,
+): void {
+  ctx.fillStyle = COLORS.shadow;
+  ctx.fillRect(x, y, w, 4);
+  const filled = Math.round(Math.min(1, value / target) * w);
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, filled, 4);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  for (let i = 7; i < w; i += 8) ctx.fillRect(x + i, y, 1, 4);
+}
+
+export function drawCard(ctx: CanvasRenderingContext2D, card: Card, x: number, y: number, highlight = false, lift = 0): void {
+  const suitColor = SUIT_COLORS[card.suit];
+  const top = y - lift;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  pixelRect(ctx, x + 3, top + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.5)');
+  pixelRect(ctx, x, top, CARD_W, CARD_H, COLORS.shadow);
+  pixelRect(ctx, x + 1, top + 1, CARD_W - 2, CARD_H - 2, highlight ? COLORS.white : COLORS.paper);
+  // Doble filete de color del palo.
+  ctx.fillStyle = suitColor;
+  ctx.fillRect(x + 3, top + 2, CARD_W - 6, 1);
+  ctx.fillRect(x + 3, top + CARD_H - 3, CARD_W - 6, 1);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillRect(x + 2, top + 3, 1, CARD_H - 6);
+  ctx.fillRect(x + CARD_W - 3, top + 3, 1, CARD_H - 6);
+
+  drawText(ctx, String(card.rank), x + 3, top + 4, suitColor, 2, 0);
+  drawSuit(ctx, card.suit, x + CARD_W - 10, top + 5, 1);
+  drawSuit(ctx, card.suit, x + (CARD_W - 12) / 2, top + 18, 2);
+  drawSuit(ctx, card.suit, x + 3, top + CARD_H - 9, 1);
+  drawText(ctx, String(card.rank), x + CARD_W - 11, top + CARD_H - 9, suitColor, 1, 0);
+
   if (highlight) {
     ctx.fillStyle = COLORS.gold;
-    ctx.fillRect(x + 1, y + 1, 2, 2);
-    ctx.fillRect(x + CARD_W - 3, y + 1, 2, 2);
-    ctx.fillRect(x + 1, y + CARD_H - 3, 2, 2);
-    ctx.fillRect(x + CARD_W - 3, y + CARD_H - 3, 2, 2);
+    for (const [dx, dy] of [[1, 1], [CARD_W - 3, 1], [1, CARD_H - 3], [CARD_W - 3, CARD_H - 3]]) {
+      ctx.fillRect(x + dx, top + dy, 2, 2);
+    }
+    ctx.fillStyle = 'rgba(255,209,102,0.25)';
+    ctx.fillRect(x + 2, top + 2, CARD_W - 4, 1);
   }
 }
 
 export function drawCardBack(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  pixelRect(ctx, x + 3, y + 3, CARD_W, CARD_H, 'rgba(0,0,0,0.45)');
-  pixelRect(ctx, x, y, CARD_W, CARD_H, COLORS.ink);
+  pixelRect(ctx, x + 3, y + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.5)');
+  pixelRect(ctx, x, y, CARD_W, CARD_H, COLORS.shadow);
   pixelRect(ctx, x + 1, y + 1, CARD_W - 2, CARD_H - 2, COLORS.redDark);
   pixelRect(ctx, x + 3, y + 3, CARD_W - 6, CARD_H - 6, COLORS.cream);
   ctx.fillStyle = COLORS.red;
@@ -193,6 +317,10 @@ export function drawCardBack(ctx: CanvasRenderingContext2D, x: number, y: number
       ctx.fillRect(x + 5 + col * 5, y + 6 + row * 5, size, size);
     }
   }
+  ctx.fillStyle = COLORS.gold;
+  ctx.fillRect(x + 12, y + 18, 6, 3);
+  ctx.fillRect(x + 13, y + 17, 4, 1);
+  ctx.fillRect(x + 13, y + 21, 4, 1);
 }
 
 const RIVAL_SPRITE = [
@@ -202,12 +330,12 @@ const RIVAL_SPRITE = [
   '..21111112..',
   '..11311311..',
   '..11111111..',
-  '..11444411..',
+  '..11777711..',
   '...111111...',
   '..55555555..',
   '.5555555555.',
-  '.5555555555.',
-  '............',
+  '.5533333355.',
+  '...4..4.....',
 ];
 
 const PLAYER_SPRITE = [
@@ -221,17 +349,18 @@ const PLAYER_SPRITE = [
   '...111111...',
   '..66666666..',
   '.6666666666.',
-  '.6666666666.',
-  '............',
+  '.6677777766.',
+  '...4..4.....',
 ];
 
 const AVATAR_COLORS: Record<string, string> = {
   '1': '#e8b884',
   '2': '#332b3a',
-  '3': '#16131b',
-  '4': '#8a4632',
-  '5': '#e45756',
+  '3': '#17131c',
+  '4': '#6b4a2c',
+  '5': '#e8504f',
   '6': '#ffd166',
+  '7': '#f497b8',
 };
 
 export function drawAvatar(ctx: CanvasRenderingContext2D, kind: 'rival' | 'player', x: number, y: number, scale = 3): void {
@@ -252,6 +381,7 @@ export function makeTable(width: number, height: number): HTMLCanvasElement {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
+
   ctx.fillStyle = COLORS.woodDark;
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = COLORS.wood;
@@ -259,10 +389,17 @@ export function makeTable(width: number, height: number): HTMLCanvasElement {
   ctx.fillStyle = COLORS.woodLight;
   ctx.fillRect(3, 3, width - 6, 2);
   ctx.fillRect(3, height - 5, width - 6, 2);
+  ctx.fillStyle = '#241609';
+  for (let x = 8; x < width - 8; x += 12) {
+    ctx.fillRect(x, 5, 5, 1);
+    ctx.fillRect(x + 3, height - 6, 5, 1);
+  }
 
-  const inset = 10;
+  const inset = 9;
+  ctx.fillStyle = '#071e16';
+  ctx.fillRect(inset - 3, inset - 3, width - inset * 2 + 6, height - inset * 2 + 6);
   ctx.fillStyle = COLORS.feltDark;
-  ctx.fillRect(inset - 2, inset - 2, width - inset * 2 + 4, height - inset * 2 + 4);
+  ctx.fillRect(inset - 1, inset - 1, width - inset * 2 + 2, height - inset * 2 + 2);
   ctx.fillStyle = COLORS.felt;
   ctx.fillRect(inset, inset, width - inset * 2, height - inset * 2);
 
@@ -280,30 +417,39 @@ export function makeTable(width: number, height: number): HTMLCanvasElement {
     }
   }
 
-  // Viñeta escalonada y costura interior.
-  for (let i = 0; i < 8; i++) {
-    ctx.fillStyle = `rgba(6, 24, 16, ${0.05 + i * 0.015})`;
+  // Costura interior y viñeta escalonada.
+  ctx.fillStyle = '#5bbf91';
+  for (let x = inset + 8; x < width - inset - 8; x += 8) {
+    ctx.fillRect(x, inset + 4, 3, 1);
+    ctx.fillRect(x, height - inset - 5, 3, 1);
+  }
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = `rgba(4, 20, 13, ${0.04 + i * 0.012})`;
     ctx.fillRect(inset + i * 2, inset + i * 2, width - (inset + i * 2) * 2, 1);
     ctx.fillRect(inset + i * 2, height - inset - i * 2 - 1, width - (inset + i * 2) * 2, 1);
   }
-  ctx.fillStyle = '#3d9a72';
-  for (let x = inset + 8; x < width - inset - 8; x += 8) {
-    ctx.fillRect(x, inset + 5, 3, 1);
-    ctx.fillRect(x, height - inset - 6, 3, 1);
-  }
 
-  // Escudo central tenue.
-  ctx.globalAlpha = 0.12;
-  drawSuit(ctx, 'espada', width / 2 - 9, height / 2 - 12, 3);
-  drawSuit(ctx, 'copa', width / 2 - 9, height / 2 + 2, 3);
+  // Escudo central tenue con las cuatro palos.
+  ctx.globalAlpha = 0.09;
+  drawSuit(ctx, 'espada', width / 2 - 15, height / 2 - 21, 5);
+  drawSuit(ctx, 'copa', width / 2 - 15, height / 2 + 6, 5);
   ctx.globalAlpha = 1;
 
-  ctx.fillStyle = COLORS.gold;
+  // Tachuelas doradas en las esquinas.
   for (const [x, y] of [[6, 6], [width - 10, 6], [6, height - 10], [width - 10, height - 10]]) {
+    ctx.fillStyle = COLORS.goldDark;
     ctx.fillRect(x, y, 4, 4);
-    ctx.fillStyle = COLORS.woodLight;
-    ctx.fillRect(x + 1, y + 1, 2, 2);
     ctx.fillStyle = COLORS.gold;
+    ctx.fillRect(x + 1, y + 1, 2, 2);
   }
   return canvas;
+}
+
+/** Destello de 4 puntas para pantallas de victoria. */
+export function drawSparkle(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, scale = 1): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 1 * scale, y - 4 * scale, 2 * scale, 8 * scale);
+  ctx.fillRect(x - 4 * scale, y - 1 * scale, 8 * scale, 2 * scale);
+  ctx.fillStyle = COLORS.white;
+  ctx.fillRect(x - scale, y - scale, 2 * scale, 2 * scale);
 }

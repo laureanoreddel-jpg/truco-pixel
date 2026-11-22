@@ -5,11 +5,12 @@ import http from 'node:http';
 import path from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { TrucoGame } from '../core/game';
-import type { GameAction, GameState, PlayerIndex } from '../core/types';
+import { namesForViewer, other, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 
 /** Sin I/O (y sin 0/1) para evitar códigos ambiguos al leerlos en voz alta. */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-export const ROOM_CODE_MIN_LENGTH = 4;
+/** Seis letras: el espacio de 4 era adivinable probando códigos. */
+export const ROOM_CODE_MIN_LENGTH = 6;
 export const ROOM_CODE_MAX_LENGTH = 6;
 export const MAX_PAYLOAD_BYTES = 8 * 1024;
 export const MAX_MESSAGES_PER_SECOND = 30;
@@ -20,7 +21,7 @@ export const PRUNE_INTERVAL_MS = 60 * 1_000;
 export const MAX_ROOMS = 500;
 const DEFAULT_PORT = 3001;
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z]{4,6}$/;
+const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z]{6}$/;
 
 export type ClientMessage =
   | { type: 'create' }
@@ -125,7 +126,7 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): b
   return own.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
-/** Código de 4 a 6 letras mayúsculas, sin caracteres ambiguos. */
+/** Código de 6 letras mayúsculas, sin caracteres ambiguos. */
 export function isRoomCode(value: unknown): value is string {
   return typeof value === 'string' && ROOM_CODE_PATTERN.test(value);
 }
@@ -208,7 +209,7 @@ export function validateClientMessage(raw: unknown): ValidationResult {
     }
     const code = normalizeRoomCode(parsed.code);
     if (!code) {
-      return { ok: false, error: 'Código de sala inválido (4 a 6 letras, sin 0/O ni 1/I).' };
+      return { ok: false, error: 'Código de sala inválido (6 letras, sin 0/O ni 1/I).' };
     }
     return { ok: true, message: { type: 'join', code } };
   }
@@ -457,10 +458,34 @@ function send(socket: WebSocket, message: ServerMessage): void {
   }
 }
 
+/**
+ * Vista del estado para un jugador: la mano rival nunca viaja y el envido
+ * resuelto sólo se revela al cerrar la mano (cuando el reglamento lo exige).
+ */
+export function clientStateFor(state: GameState, viewer: PlayerIndex): GameState {
+  const copy = JSON.parse(JSON.stringify(state)) as GameState;
+  const hands: [GameState['hands'][number], GameState['hands'][number]] = [[], []];
+  hands[viewer] = state.hands[viewer].map((card) => ({ ...card }));
+  copy.hands = hands;
+  copy.handCounts = [state.hands[0].length, state.hands[1].length];
+
+  const revealEnvido = copy.phase !== 'playing';
+  if (!revealEnvido) {
+    copy.envidoResult = null;
+    if (copy.lastHand) copy.lastHand.envido = undefined;
+  }
+  const maskEnvido = (text: string): string =>
+    revealEnvido ? text : text.replace(/Envidio \d+(?: \([^)]*\))?/g, 'Envidio resuelto');
+  copy.lastEvent = namesForViewer(maskEnvido(copy.lastEvent), viewer);
+  copy.log = copy.log.map((line) => namesForViewer(maskEnvido(line), viewer));
+  return copy;
+}
+
 function broadcast(room: Room): void {
   const state = room.game.getState();
-  for (const seat of room.seats) {
-    if (seat.socket) send(seat.socket, { type: 'state', state });
+  for (const player of [0, 1] as PlayerIndex[]) {
+    const seat = room.seats[player];
+    if (seat.socket) send(seat.socket, { type: 'state', state: clientStateFor(state, player) });
   }
 }
 
@@ -503,7 +528,13 @@ function attach(
   meta.player = player;
   touch(room, now);
 
-  send(socket, { type: 'welcome', player, token, code: room.code, state });
+  send(socket, {
+    type: 'welcome',
+    player,
+    token,
+    code: room.code,
+    state: state ? clientStateFor(state, player) : null,
+  });
   announceOpponent(room);
   if (state) broadcast(room);
 }

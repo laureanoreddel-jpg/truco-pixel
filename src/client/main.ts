@@ -1,4 +1,4 @@
-import { chooseAiAction, type Difficulty } from '../core/ai';
+import { chooseAiAction, makeStoryProfile, profileFor, type Difficulty } from '../core/ai';
 import { TrucoGame } from '../core/game';
 import {
   isStoryUnlocked,
@@ -10,7 +10,7 @@ import {
 import { other, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import { AudioFx } from './audio';
 import { NetClient, type ServerMessage } from './net';
-import { Renderer, type HitBox } from './renderer';
+import { Renderer, type HitBox, type JoinInput } from './renderer';
 import './style.css';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -21,12 +21,68 @@ const renderer = new Renderer(ctx, canvas.width, canvas.height);
 const audio = new AudioFx();
 const net = new NetClient();
 
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Sin almacenamiento: las preferencias viven solo en esta sesión.
+  }
+}
+
+function storageRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Nada que limpiar.
+  }
+}
+
+/** El token de sala es por pestaña: dos pestañas no deben pelearse por el mismo asiento. */
+function sessionGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function sessionSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // Sin sesión: la partida sigue mientras la pestaña esté abierta.
+  }
+}
+
+function sessionRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Nada que limpiar.
+  }
+}
+
+audio.enabled = storageGet('truco-sonido') !== 'off';
+
+function savedDifficulty(): Difficulty {
+  const value = storageGet('truco-dificultad');
+  return value === 'facil' || value === 'medio' || value === 'dificil' ? value : 'medio';
+}
+
 type Screen = 'menu' | 'online' | 'story' | 'storyIntro' | 'storyResult' | 'game' | 'help';
 type Mode = 'local' | 'online' | 'story';
 
 let screen: Screen = 'menu';
 let mode: Mode = 'local';
-let difficulty: Difficulty = 'medio';
+let difficulty: Difficulty = savedDifficulty();
 let storyProgress = loadStoryProgress();
 let storyIndex = Math.min(storyProgress, STORY_OPPONENTS.length - 1);
 let storyWon = false;
@@ -42,6 +98,13 @@ let helpPage = 0;
 let noticeTimer: number | undefined;
 let aiTimer: number | undefined;
 let room = { code: '', status: 'Conectando al servidor...', connected: false, token: '' };
+let joinInput: JoinInput = { active: false, value: '' };
+let storyTaunt = '';
+let tauntTimer: number | undefined;
+let reconnectTimer: number | undefined;
+let reconnectAttempts = 0;
+const srStatus = document.getElementById('sr-status');
+let lastAnnouncement = '';
 
 function setNotice(text: string): void {
   notice = text;
@@ -51,11 +114,18 @@ function setNotice(text: string): void {
   }, 1800);
 }
 
+/** Anuncia el estado en un region aria-live sin llenar la pantalla de texto. */
+function announce(text: string): void {
+  if (!srStatus || text === lastAnnouncement) return;
+  lastAnnouncement = text;
+  srStatus.textContent = text;
+}
+
 function render(): void {
   if (screen === 'menu') {
-    hits = renderer.drawMenu(difficulty, hover);
+    hits = renderer.drawMenu(difficulty, hover, audio.enabled);
   } else if (screen === 'online') {
-    hits = renderer.drawOnline(room, hover);
+    hits = renderer.drawOnline(room, hover, joinInput);
   } else if (screen === 'help') {
     hits = renderer.drawHelp(hover, helpPage);
   } else if (screen === 'story') {
@@ -72,7 +142,25 @@ function render(): void {
       notice,
       hover,
       opponent: mode === 'story' ? STORY_OPPONENTS[storyIndex] : undefined,
+      sound: audio.enabled,
+      taunt: storyTaunt,
     });
+  }
+
+  if (screen === 'game' && game) {
+    const s = game.state;
+    const status = s.phase === 'handEnd'
+      ? 'Mano terminada'
+      : s.phase === 'gameEnd'
+        ? 'Partida terminada'
+        : s.pending
+          ? 'Hay un canto esperando respuesta'
+          : s.turn === human
+            ? 'Tu turno'
+            : 'Turno del rival';
+    announce(`${status}. Vos ${s.scores[human]}, rival ${s.scores[other(human)]}.`);
+  } else {
+    announce(`Pantalla ${screen}`);
   }
 }
 
@@ -80,9 +168,21 @@ function updateLegal(): void {
   legal = game ? game.legalActions(human) : [];
 }
 
+function cancelReconnect(): void {
+  if (reconnectTimer) window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
+}
+
+function clearTaunt(): void {
+  if (tauntTimer) window.clearTimeout(tauntTimer);
+  tauntTimer = undefined;
+  storyTaunt = '';
+}
+
 function stopAi(): void {
   if (aiTimer) window.clearTimeout(aiTimer);
   aiTimer = undefined;
+  clearTaunt();
 }
 
 function startLocal(): void {
@@ -146,8 +246,24 @@ function scheduleAi(): void {
     aiTimer = undefined;
     if (!game || (mode !== 'local' && mode !== 'story')) return;
     const player = game.state.pending ? other(game.state.pending.by) : game.state.turn;
-    const level = mode === 'story' ? STORY_OPPONENTS[storyIndex].difficulty : difficulty;
+    const rival = STORY_OPPONENTS[storyIndex];
+    const level = mode === 'story' ? makeStoryProfile(rival.difficulty, rival.profile ?? {}) : profileFor(difficulty);
     const action = chooseAiAction(game, player, level);
+    if (mode === 'story') {
+      const truco = action.type === 'callTruco' || action.type === 'raiseTruco';
+      const envido = action.type === 'callEnvido' || action.type === 'callRealEnvido'
+        || action.type === 'callEnvidoEnvido' || action.type === 'callFalta';
+      if (truco || envido) {
+        const pool = STORY_OPPONENTS[storyIndex].taunts[truco ? 'truco' : 'envido'];
+        storyTaunt = pool[Math.floor(Math.random() * pool.length)] ?? '';
+        if (tauntTimer) window.clearTimeout(tauntTimer);
+        tauntTimer = window.setTimeout(() => {
+          storyTaunt = '';
+          tauntTimer = undefined;
+          render();
+        }, 1500);
+      }
+    }
     if (game.dispatch(player, action)) afterAction(action);
     scheduleAi();
   }, 620);
@@ -191,16 +307,33 @@ function dispatchLocal(action: GameAction): void {
 
 function startOnline(): void {
   stopAi();
+  cancelReconnect();
+  reconnectAttempts = 0;
+  storageRemove('truco-token'); // Versiones anteriores guardaban el token por origen.
   hover = null;
+  joinInput = { active: false, value: '' };
   screen = 'online';
   mode = 'online';
   game = null;
-  room = { code: '', status: 'Conectando al servidor...', connected: false, token: localStorage.getItem('truco-token') ?? '' };
+  room = { code: '', status: 'Conectando al servidor...', connected: false, token: sessionGet('truco-token') ?? '' };
   net.onMessage = handleNetMessage;
   net.onClose = () => {
-    room.status = 'Se perdio la conexion con el servidor';
+    cancelReconnect();
+    if (screen !== 'online' && screen !== 'game') return;
     room.connected = false;
+    if (reconnectAttempts >= 5) {
+      room.status = 'Sin conexion. Volvé al menu e intentá de nuevo.';
+      render();
+      return;
+    }
+    reconnectAttempts += 1;
+    room.status = `Reconectando... (${reconnectAttempts}/5)`;
     render();
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = undefined;
+      if (screen !== 'online' && screen !== 'game') return;
+      net.connect(room.token || sessionGet('truco-token') || undefined);
+    }, 900);
   };
   net.connect(room.token || undefined);
   render();
@@ -209,11 +342,13 @@ function startOnline(): void {
 function handleNetMessage(message: ServerMessage): void {
   switch (message.type) {
     case 'welcome': {
+      cancelReconnect();
+      reconnectAttempts = 0;
       human = message.player;
       room.code = message.code;
       room.token = message.token;
       room.status = message.player === 0 ? 'Esperando al rival...' : 'Conectado';
-      localStorage.setItem('truco-token', message.token);
+      sessionSet('truco-token', message.token);
       if (message.state) {
         game = new TrucoGame(1);
         game.state = message.state;
@@ -232,6 +367,8 @@ function handleNetMessage(message: ServerMessage): void {
       break;
     }
     case 'state': {
+      cancelReconnect();
+      reconnectAttempts = 0;
       const previousEvent = game?.state.lastEvent;
       game = new TrucoGame(1);
       game.state = message.state;
@@ -254,6 +391,10 @@ function handleNetMessage(message: ServerMessage): void {
       break;
     case 'error':
       room.status = message.message;
+      if (message.message.startsWith('Sesión vencida')) {
+        sessionRemove('truco-token');
+        room.token = '';
+      }
       setNotice(message.message);
       render();
       break;
@@ -266,12 +407,22 @@ function dispatchOnline(action: GameAction): void {
 
 function goMenu(): void {
   stopAi();
+  cancelReconnect();
   if (storyResultTimer) window.clearTimeout(storyResultTimer);
   storyResultTimer = undefined;
   net.close();
+  sessionRemove('truco-token');
   hover = null;
+  joinInput = { active: false, value: '' };
   screen = 'menu';
   game = null;
+  render();
+}
+
+function confirmJoin(code: string): void {
+  joinInput = { active: false, value: '' };
+  room.status = `Uniendose a ${code}...`;
+  if (!net.join(code)) room.status = 'Primero conectate al servidor';
   render();
 }
 
@@ -279,6 +430,14 @@ function handleHit(id: string): void {
   audio.click();
   if (id.startsWith('diff:')) {
     difficulty = id.slice(5) as Difficulty;
+    storageSet('truco-dificultad', difficulty);
+    render();
+    return;
+  }
+  if (id === 'menu:sound' || id === 'game:sound') {
+    audio.enabled = !audio.enabled;
+    storageSet('truco-sonido', audio.enabled ? 'on' : 'off');
+    if (audio.enabled) audio.click();
     render();
     return;
   }
@@ -321,11 +480,23 @@ function handleHit(id: string): void {
     return;
   }
   if (id === 'online:join') {
-    const code = window.prompt('Codigo de la sala (4 letras)')?.trim().toUpperCase() ?? '';
-    if (!code) return;
-    room.status = `Uniendose a ${code}...`;
-    if (!net.join(code)) room.status = 'Primero conectate al servidor';
+    joinInput = { active: true, value: '' };
     render();
+    return;
+  }
+  if (id === 'online:joinCancel') {
+    joinInput = { active: false, value: '' };
+    render();
+    return;
+  }
+  if (id === 'online:joinConfirm') {
+    const code = joinInput.value.trim().toUpperCase();
+    if (code.length < 4) {
+      room.status = 'El codigo necesita al menos 4 letras';
+      render();
+      return;
+    }
+    confirmJoin(code);
     return;
   }
   if (id === 'online:copy') {
@@ -388,7 +559,39 @@ canvas.addEventListener('pointerleave', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (screen === 'online' && joinInput.active) {
+    const letter = event.key.toUpperCase();
+    if (/^[A-Z]$/.test(letter)) {
+      if (joinInput.value.length < 6) joinInput = { ...joinInput, value: joinInput.value + letter };
+      render();
+      return;
+    }
+    if (event.key === 'Backspace') {
+      joinInput = { ...joinInput, value: joinInput.value.slice(0, -1) };
+      render();
+      return;
+    }
+    if (event.key === 'Enter') {
+      const code = joinInput.value.trim().toUpperCase();
+      if (code.length >= 4) confirmJoin(code);
+      else {
+        room.status = 'El codigo necesita al menos 4 letras';
+        render();
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      joinInput = { active: false, value: '' };
+      render();
+    }
+    return;
+  }
   const key = event.key.toLowerCase();
+  if (key === 'escape' && screen === 'help') {
+    screen = helpReturn;
+    render();
+    return;
+  }
   if (key === 'escape' && screen !== 'menu') {
     if (screen === 'storyIntro' || screen === 'storyResult') goStoryMap();
     else goMenu();

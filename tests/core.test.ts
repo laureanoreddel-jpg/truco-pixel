@@ -334,7 +334,7 @@ describe('flujo de juego', () => {
     expect(game.state.scores[1]).toBe(2);
   });
 
-  it('la cadena de envido respeta el orden y el doble no va después del real', () => {
+  it('la cadena de envido respeta el orden y permite responder envido o real al real', () => {
     const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
     game.state.scores = [8, 2];
     expect(game.legalActions(0).map((a) => a.type)).not.toContain('callEnvidoEnvido');
@@ -345,13 +345,21 @@ describe('flujo de juego', () => {
     expect(afterEnvido).toContain('callRealEnvido');
     expect(afterEnvido).toContain('callFalta');
     game.dispatch(1, { type: 'callRealEnvido' });
+    // ARCAT/CASI: después del real siguen disponibles envido, real y falta.
     const afterReal = game.legalActions(0).map((a) => a.type);
-    expect(afterReal).not.toContain('callEnvido');
+    expect(afterReal).toContain('callEnvido');
     expect(afterReal).not.toContain('callEnvidoEnvido');
-    expect(afterReal).not.toContain('callRealEnvido');
+    expect(afterReal).toContain('callRealEnvido');
     expect(afterReal).toContain('callFalta');
-    game.dispatch(0, { type: 'callFalta' });
-    expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido']);
+    game.dispatch(0, { type: 'callEnvido' });
+    expect(game.state.pending).toMatchObject({ potAfter: 7, decline: 5 });
+    const afterRealEnvido = game.legalActions(1).map((a) => a.type);
+    // Ya se cantaron los dos «envidos» permitidos: quedan real y falta.
+    expect(afterRealEnvido).not.toContain('callEnvidoEnvido');
+    expect(afterRealEnvido).toContain('callRealEnvido');
+    expect(afterRealEnvido).toContain('callFalta');
+    game.dispatch(1, { type: 'callFalta' });
+    expect(game.legalActions(0).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido']);
   });
 
   it('después de envido envido se puede seguir con real envido y falta', () => {
@@ -366,7 +374,7 @@ describe('flujo de juego', () => {
     expect(afterDoble).toContain('callFalta');
     game.dispatch(0, { type: 'callRealEnvido' });
     expect(game.state.pending).toMatchObject({ potAfter: 7, decline: 4 });
-    expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido', 'callFalta']);
+    expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido', 'callRealEnvido', 'callFalta']);
     game.dispatch(1, { type: 'declineEnvido' });
     expect(game.state.scores[0]).toBe(12);
     expect(game.state.phase).toBe('playing');
@@ -381,9 +389,15 @@ describe('flujo de juego', () => {
       { bids: [{ type: 'callEnvido' }], points: 1 },
       { bids: [{ type: 'callEnvido' }, { type: 'callEnvidoEnvido' }], points: 2 },
       { bids: [{ type: 'callEnvido' }, { type: 'callRealEnvido' }], points: 2 },
+      { bids: [{ type: 'callRealEnvido' }, { type: 'callEnvido' }], points: 3 },
+      { bids: [{ type: 'callRealEnvido' }, { type: 'callRealEnvido' }], points: 3 },
       {
         bids: [{ type: 'callEnvido' }, { type: 'callEnvidoEnvido' }, { type: 'callRealEnvido' }],
         points: 4,
+      },
+      {
+        bids: [{ type: 'callRealEnvido' }, { type: 'callEnvido' }, { type: 'callEnvidoEnvido' }],
+        points: 5,
       },
     ];
     for (const { bids, points } of chains) {
@@ -411,6 +425,17 @@ describe('flujo de juego', () => {
     expect(game.state.scores[1]).toBe(1);
     expect(game.state.pending).toMatchObject({ kind: 'truco', by: 0, level: 1 });
     expect(game.state.deferredTruco).toBeNull();
+  });
+
+  it('el truco diferido también reaparece al aceptar el envido', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'callTruco' });
+    game.dispatch(1, { type: 'callEnvido' });
+    expect(game.state.deferredTruco).not.toBeNull();
+    game.dispatch(0, { type: 'acceptEnvido' });
+    expect(game.state.deferredTruco).toBeNull();
+    expect(game.state.pending).toMatchObject({ kind: 'truco', by: 0, level: 1 });
+    expect(game.legalActions(1).map((a) => a.type)).toContain('declineTruco');
   });
 
   it('quien recibió el truco puede subir después de aceptar', () => {

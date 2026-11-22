@@ -9,6 +9,7 @@ import {
   contentTypeFor,
   createRoom,
   createRoomCode,
+  detach,
   isGameAction,
   isMainModule,
   isRoomCode,
@@ -208,6 +209,28 @@ describe('poda de salas', () => {
     allRooms.set(room.code, room);
 
     expect(pruneRooms(allRooms, now + 1_001, bindings, { roomIdleMs: 1_000 }).removed).toEqual(['QRST']);
+  });
+});
+
+describe('desconexión con gracia', () => {
+  it('renueva juntos el asiento y el binding de reconexión', () => {
+    const now = 10_000;
+    const allRooms = new Map<string, Room>();
+    const bindings = new Map<string, TokenBinding>();
+    const room = createRoom('YZAB', { now });
+    const socket = fakeSocket()!;
+    room.seats[0].socket = socket;
+    room.seats[0].token = VALID_UUID;
+    room.seats[0].tokenExpiresAt = now + 10_000;
+    allRooms.set(room.code, room);
+    bindings.set(VALID_UUID, { room, player: 0, expiresAt: now - 1 });
+
+    detach(socket, now, allRooms, bindings);
+
+    expect(allRooms.has('YZAB')).toBe(true);
+    expect(room.seats[0].socket).toBeNull();
+    expect(room.seats[0].tokenExpiresAt).toBe(now + 5 * 60_000);
+    expect(bindings.get(VALID_UUID)?.expiresAt).toBe(room.seats[0].tokenExpiresAt);
   });
 });
 

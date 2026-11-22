@@ -25,6 +25,18 @@ export const COLORS = {
   navy: '#1b2a44',
 };
 
+/** Aclara (amount > 0) u oscurece (amount < 0) un color hexadecimal. */
+export function shadeColor(hex: string, amount: number): string {
+  const value = hex.replace('#', '');
+  if (value.length !== 6) return hex;
+  const channels = [0, 2, 4].map((offset) => {
+    const base = parseInt(value.slice(offset, offset + 2), 16);
+    const adjusted = amount >= 0 ? base + (255 - base) * amount : base * (1 + amount);
+    return Math.max(0, Math.min(255, Math.round(adjusted))).toString(16).padStart(2, '0');
+  });
+  return `#${channels.join('')}`;
+}
+
 /** Tipografía bitmap 5x7. */
 const FONT: Record<string, string[]> = {
   A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
@@ -466,10 +478,15 @@ const BUST_COLORS: Record<string, string> = {
 };
 
 /** Retrato del rival sentado al otro lado de la mesa. */
-export function drawRivalPortrait(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 3): void {
+export function drawRivalPortrait(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 3, shirtColor = BUST_COLORS['6']): void {
+  const palette: Record<string, string> = {
+    ...BUST_COLORS,
+    '6': shirtColor,
+    '7': shadeColor(shirtColor, -0.3),
+  };
   RIVAL_BUST.forEach((row, rowIndex) => {
     for (let col = 0; col < row.length; col++) {
-      const color = BUST_COLORS[row[col]];
+      const color = palette[row[col]];
       if (color) ctx.fillRect(x + col * scale, y + rowIndex * scale, scale, scale);
     }
   });
@@ -488,7 +505,7 @@ function fillPolygon(ctx: CanvasRenderingContext2D, points: Array<[number, numbe
  * Fondo en primera persona: pared cálida, rival al fondo, mesa en perspectiva
  * con fieltro texturizado, moldura de madera y brazos apoyados. Se dibuja una sola vez.
  */
-export function makeGameTable(width: number, height: number): HTMLCanvasElement {
+export function makeGameTable(width: number, height: number, shirtColor = BUST_COLORS['6']): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -512,7 +529,7 @@ export function makeGameTable(width: number, height: number): HTMLCanvasElement 
 
   // Sombra del rival proyectada en la pared.
   fillPolygon(ctx, [[198, 8], [282, 8], [300, 70], [180, 70]], 'rgba(0,0,0,0.28)');
-  drawRivalPortrait(ctx, Math.round((width - 84) / 2), 0, 3);
+  drawRivalPortrait(ctx, Math.round((width - 84) / 2), 0, 3, shirtColor);
 
   const topY = 56;
   const feltPath = (): void => {
@@ -581,10 +598,10 @@ export function makeGameTable(width: number, height: number): HTMLCanvasElement 
   for (let x = 60; x < width - 60; x += 10) ctx.fillRect(x, height - 18, 5, 1);
 
   // Brazos del rival sobre el fieltro, con puños y dedos.
-  fillPolygon(ctx, [[206, 48], [184, 55], [126, 92], [140, 101], [212, 63]], '#c84348');
-  fillPolygon(ctx, [[206, 50], [186, 58], [134, 94], [141, 98], [207, 62]], '#8f2a32');
-  fillPolygon(ctx, [[274, 48], [296, 55], [354, 92], [340, 101], [268, 63]], '#c84348');
-  fillPolygon(ctx, [[274, 50], [294, 58], [346, 94], [339, 98], [273, 62]], '#8f2a32');
+  fillPolygon(ctx, [[206, 48], [184, 55], [126, 92], [140, 101], [212, 63]], shirtColor);
+  fillPolygon(ctx, [[206, 50], [186, 58], [134, 94], [141, 98], [207, 62]], shadeColor(shirtColor, -0.3));
+  fillPolygon(ctx, [[274, 48], [296, 55], [354, 92], [340, 101], [268, 63]], shirtColor);
+  fillPolygon(ctx, [[274, 50], [294, 58], [346, 94], [339, 98], [273, 62]], shadeColor(shirtColor, -0.3));
   for (const hx of [120, 340]) {
     ctx.fillStyle = '#aa6a3c';
     ctx.fillRect(hx, 88, 20, 12);

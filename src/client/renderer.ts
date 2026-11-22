@@ -1,5 +1,5 @@
 import type { Difficulty } from '../core/ai';
-import { cardLabel, cardStrength, envidoDecline, envidoScore, envidoWordCount, strengthTier, trucoPoints } from '../core/hand';
+import { cardLabel, cardStrength, envidoCallValue, envidoDecline, envidoScore, envidoWordCount, strengthTier, trucoPoints } from '../core/hand';
 import { isStoryUnlocked, STORY_OPPONENTS, type StoryOpponent } from '../core/story';
 import { namesForViewer, other, type Card, type GameAction, type GameState, type PlayerIndex, type Suit } from '../core/types';
 import {
@@ -81,8 +81,9 @@ interface DockSlot {
   openEnvido?: boolean;
 }
 
+/** Sólo cantos: "quiero" y "no quiero" ya están en el dock, no van en el submenú. */
 const ENVIDO_ORDER: GameAction['type'][] = [
-  'callEnvido', 'callEnvidoEnvido', 'callRealEnvido', 'callFalta', 'acceptEnvido', 'declineEnvido',
+  'callEnvido', 'callEnvidoEnvido', 'callRealEnvido', 'callFalta',
 ];
 
 const DIFFICULTIES: Difficulty[] = ['facil', 'medio', 'dificil'];
@@ -149,22 +150,22 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
       'SIN PAREJA VALE LA CARTA MAYOR',
       '',
       'CADA PALABRA ENVIDO SUMA 2',
-      'ENVIDO +2   ENVIDO ENVIDO +4',
-      'REAL ENVIDO +3   FALTA = SALDO',
-      'LA FALTA REEMPLAZA LOS TANTOS',
-      'NO CANTES ENVIDO TRAS QUERER',
-      'NI CON TU CARTA YA TIRADA',
+      'ENVIDO +2  /  ENVIDO ENVIDO +4',
+      'REAL ENVIDO +3  /  FALTA = SALDO',
+      'TRAS ENVIDO ENVIDO: REAL O FALTA',
+      'NO INICIES SI YA TIRASTE CARTA',
+      'NI DESPUES DE QUERER EL TRUCO',
     ],
     right: [
-      'NO QUIERO = LO QUE VALIA ANTES',
+      'NO QUIERO = LO YA ACEPTADO',
       'PRIMER CANTO RECHAZADO = 1',
       'REAL DIRECTO RECHAZADO = 1',
       'ENV + ENV RECHAZADO = 2',
       'DESPUES DEL REAL SOLO FALTA',
       'FALTA: LO QUE LE FALTA AL LIDER',
       'EMPATADOS A 0: VALEN 15',
-      'TANTOS EN JUEGO SE PAGAN',
-      'AL CERRAR LA MANO, NO CORTA',
+      'TE CANTAN ENVIDO Y YA TIRASTE?',
+      'PODES CONTESTAR IGUAL',
       'EMPATE DE TANTOS: GANA EL MANO',
       'LOS TANTOS SE VEN AL FINAL',
     ],
@@ -185,7 +186,7 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
     right: [
       'TECLAS RAPIDAS',
       '1 / 2 / 3  JUGAR CARTA',
-      'E ENVIDO - R REAL - D DOBLE',
+      'E ENVIDO - D DOBLE - R REAL',
       'F FALTA - T TRUCO - S SUBIR',
       'Q QUIERO - N NO QUIERO - M MAZO',
       'ENTER SIGUIENTE MANO',
@@ -260,7 +261,8 @@ function tierShort(tier: number): string {
 function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAction['type'], ActionDef>> {
   const p = state.pending;
   const nextTruco = p?.kind === 'truco' ? Math.min(3, p.level + 1) : Math.min(3, (state.trucoLevel || 0) + 1);
-  const bid = p?.kind === 'envido' ? p.bid : Math.max(1, state.targetScore - state.scores[other(human)]);
+  // La falta siempre se calcula desde el marcador; no hereda el valor del canto previo.
+  const falta = envidoCallValue('falta', state.scores, state.targetScore);
   const rejectEnvido = p?.kind === 'envido' ? envidoDecline(p.bids) : 1;
   const mazoEnvido = state.played.flat().every((card) => card === null) && state.envidoStatus === 'open' ? 1 : 0;
   const foldValue = trucoPoints(state.trucoLevel) + mazoEnvido;
@@ -294,19 +296,23 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
     },
     callEnvidoEnvido: {
       type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#ffc93c', text: COLORS.shadow,
-      hint: 'Segundo envido: sumás 2 (4 en total). El rechazo da 2 puntos.',
+      hint: 'Contestás "envido" al envido: sumás 2 y la bolsa queda en 4. Si no lo quieren, ganás 2.',
     },
     callFalta: {
-      type: 'callFalta', label: `FALTA ENVIDO +${bid}`, color: '#d06a1a', text: COLORS.shadow,
-      hint: `Cantás ${bid}: lo que le falta a quien va ganando para ${state.targetScore}. Rechazo = ${rejectEnvido} para vos.`,
+      type: 'callFalta', label: `FALTA ENVIDO +${falta}`, color: '#d06a1a', text: COLORS.shadow,
+      hint: `Cantás ${falta}: lo que le falta a quien va ganando para ${state.targetScore}. Reemplaza la bolsa; rechazo = ${rejectEnvido} para vos.`,
     },
     acceptEnvido: {
-      type: 'acceptEnvido', label: `QUIERO +${p?.kind === 'envido' ? p.bid : 2}`,
-      color: COLORS.green, text: COLORS.shadow, hint: 'Aceptás la suba. El envido se decide al cerrar la mano.',
+      type: 'acceptEnvido', label: `QUIERO x${p?.kind === 'envido' ? p.potAfter : 2}`,
+      color: COLORS.green, text: COLORS.shadow,
+      hint: p?.kind === 'envido'
+        ? `Aceptás toda la cadena: se juega por ${p.potAfter} tantos. Se decide al cerrar la mano.`
+        : 'Aceptás el envido por 2 tantos. Se decide al cerrar la mano.',
     },
     declineEnvido: {
       type: 'declineEnvido', label: `NO (DA ${rejectEnvido})`,
-      color: '#9e1f28', text: COLORS.white, hint: 'No aceptás: el rival suma puntos, pero la mano sigue.',
+      color: '#9e1f28', text: COLORS.white,
+      hint: `No aceptás el último canto: quien lo cantó suma ${rejectEnvido} y la mano sigue.`,
     },
     fold: {
       type: 'fold', label: `MAZO (RIVAL +${foldValue})`, color: '#3d8bd8', text: COLORS.white,
@@ -463,7 +469,7 @@ export class Renderer {
     } else if (state.pending?.kind === 'envido') {
       add('acceptEnvido', 'QUIERO', 110);
       add('declineEnvido', 'NO QUIERO', 118);
-      if (ENVIDO_ORDER.some((type) => type !== 'acceptEnvido' && type !== 'declineEnvido' && available.has(type))) {
+      if (ENVIDO_ORDER.some((type) => available.has(type))) {
         slots.push({
           id: 'ui:envido', label: 'ENVIDO', color: COLORS.gold, text: COLORS.ink,
           width: 124, icon: 'oro', openEnvido: true,

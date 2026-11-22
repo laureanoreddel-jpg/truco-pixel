@@ -1,6 +1,6 @@
 import { createDeck } from './deck';
 import { TrucoGame } from './game';
-import { cardStrength, envidoScore, sortHand, trucoPoints } from './hand';
+import { cardStrength, envidoRaisesFor, envidoScore, sortHand, trucoPoints } from './hand';
 import {
   other,
   type Card,
@@ -33,7 +33,7 @@ export interface AiProfile {
 
 /** Perfiles base, deliberadamente muy distintos entre sí. */
 export const AI_PROFILES: Record<Difficulty, AiProfile> = {
-  facil: { bluff: 0.6, envidoBias: -0.45, foldTolerance: 0.95, samples: 4, noise: 3, label: 'Fácil' },
+  facil: { bluff: 0.6, envidoBias: -0.45, foldTolerance: 0.95, samples: 4, noise: 1.2, label: 'Fácil' },
   medio: { bluff: 0.14, envidoBias: 0.05, foldTolerance: 0.42, samples: 12, noise: 0.55, label: 'Medio' },
   dificil: { bluff: 0.03, envidoBias: 0.4, foldTolerance: 0.1, samples: 32, noise: 0.05, label: 'Difícil' },
 };
@@ -79,23 +79,8 @@ function sanitizeProfile(profile: AiProfile): AiProfile {
 }
 
 function copyState(state: GameState): GameState {
-  return {
-    ...state,
-    scores: [state.scores[0], state.scores[1]],
-    hands: [state.hands[0].slice(), state.hands[1].slice()],
-    played: [
-      [state.played[0][0], state.played[0][1]],
-      [state.played[1][0], state.played[1][1]],
-      [state.played[2][0], state.played[2][1]],
-    ],
-    roundWins: [state.roundWins[0], state.roundWins[1]],
-    roundPoints: [state.roundPoints[0], state.roundPoints[1]],
-    pending: state.pending ? { ...state.pending } : null,
-    deferredTruco: state.deferredTruco ? { ...state.deferredTruco } : null,
-    envidoResult: state.envidoResult ? { ...state.envidoResult } : null,
-    lastHand: state.lastHand ? { ...state.lastHand } : null,
-    log: state.log.slice(),
-  };
+  // El estado es pequeño y puramente serializable; esto evita olvidar campos nuevos.
+  return JSON.parse(JSON.stringify(state)) as GameState;
 }
 
 /** Fuerza aproximada de una mano: las dos mejores cartas (una sola carta se penaliza). */
@@ -151,6 +136,25 @@ function sampleRivalHands(
   return result;
 }
 
+/**
+ * Cuando ya se resolvió un envido, sus tantos son información pública: las manos
+ * imaginadas del rival tienen que respetar lo que ya se sabe de ellas.
+ */
+function filterSamplesByEnvido(
+  hands: Card[][],
+  state: GameState,
+  player: PlayerIndex,
+): Card[][] {
+  const result = state.envidoResult;
+  if (!result) return hands;
+  const rivalWon = result.winner === other(player);
+  // Si el rival ganó, su envido es exactamente el cantado. Si perdió, no puede superarlo.
+  return hands.filter((hand) => {
+    const value = envidoScore(hand).points;
+    return rivalWon ? value === result.score : value <= result.score;
+  });
+}
+
 /** Utilidad de un cierre de mano: diferencia de puntos + valor de ganar/perder la partida. */
 function finalUtility(state: GameState, player: PlayerIndex, startScores: [number, number]): number {
   const rival = other(player);
@@ -186,14 +190,16 @@ function pickEnvidoRaise(
   legal: GameAction[],
   envido: number,
   winning: boolean,
-  level: number,
+  bids: GameState['envidoBids'],
   profile: AiProfile,
 ): GameAction | null {
-  if (level >= 4 || !winning || envido < 31) return null;
+  // La legalidad de la suba ya la asegura el motor; acá sólo elegimos la mejor.
+  if (!winning || envido < 31 || envidoRaisesFor(bids).length === 0) return null;
   const has = (type: GameAction['type']) => legal.some((action) => action.type === type);
   if (has('callFalta') && envido >= 33) return { type: 'callFalta' };
   if (has('callEnvidoEnvido') && envido >= 32) return { type: 'callEnvidoEnvido' };
   if (has('callRealEnvido') && envido >= 31 && profile.envidoBias > -0.2) return { type: 'callRealEnvido' };
+  if (has('callEnvido') && envido >= 33) return { type: 'callEnvido' };
   return null;
 }
 
@@ -285,12 +291,11 @@ function responseToEnvido(
   if (pending?.kind !== 'envido') return { type: 'declineEnvido' };
   const envido = envidoScore(state.hands[player]).points;
   const winning = winsEnvido(state, player);
-  const level = pending.level;
   const pot = pending.potAfter;
-  const cheap = pot <= level + 1 + profile.envidoBias * 3 - profile.foldTolerance * 2;
+  const cheap = pot <= pending.bids.length * 2 + 1 + profile.envidoBias * 3 - profile.foldTolerance * 2;
   const strong = envido >= 33 + profile.envidoBias * 4 - profile.foldTolerance * 4;
   if (!winning && !cheap && !strong) return { type: 'declineEnvido' };
-  const raise = pickEnvidoRaise(legal, envido, winning, level, profile);
+  const raise = pickEnvidoRaise(legal, envido, winning, pending.bids, profile);
   return raise ?? { type: 'acceptEnvido' };
 }
 
@@ -315,7 +320,7 @@ function turnAction(
   if (legal.some((action) => action.type === 'callEnvido')) {
     const envido = envidoScore(state.hands[player]).points;
     if (envido >= 32 + profile.envidoBias * 3) {
-      const raise = pickEnvidoRaise(legal, envido, true, state.envidoLevel ?? 0, profile);
+      const raise = pickEnvidoRaise(legal, envido, true, state.envidoBids, profile);
       return raise ?? { type: 'callEnvido' };
     }
   }
@@ -428,7 +433,11 @@ export function chooseAiAction(
   if (legal.length === 1) return legal[0];
 
   const rival = other(player);
-  const samples = sampleRivalHands(state, player, profile.samples, rng);
+  const samples = filterSamplesByEnvido(
+    sampleRivalHands(state, player, profile.samples, rng),
+    state,
+    player,
+  );
   const scratch = new TrucoGame(0, game.targetScore);
   const startScores: [number, number] = [state.scores[0], state.scores[1]];
   const bluffing = rng() < profile.bluff;

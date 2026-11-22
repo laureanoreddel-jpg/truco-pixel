@@ -1,5 +1,5 @@
 import type { Difficulty } from '../core/ai';
-import { cardLabel, cardStrength, envidoScore, strengthTier, trucoPoints } from '../core/hand';
+import { cardLabel, cardStrength, declinePoints, envidoScore, strengthTier, trucoPoints } from '../core/hand';
 import { isStoryUnlocked, STORY_OPPONENTS, type StoryOpponent } from '../core/story';
 import { other, type Card, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import {
@@ -85,24 +85,26 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
     left: [
       'GANA QUIEN TOMA 2 DE 3 RONDAS',
       'LA CARTA MAYOR GANA LA RONDA',
-      'EMPATE = NADIE SUMA ESA RONDA',
-      'DESPUES DE UN EMPATE,',
-      'LA SIGUIENTE RONDA VALE DOBLE',
-      'Y ESO DEFINE LA MANO',
+      'PARDAS: NADIE GANA ESA RONDA',
+      'PARDA 1: DECIDE LA SEGUNDA',
+      'PARDA 2: GANA QUIEN GANÓ LA 1',
+      'PARDA 3: VUELVE A LA PRIMERA',
+      'TRES PARDAS: GANA EL MANO',
       '',
       'EL TRACKER R1/R2/R3 MUESTRA',
       'QUIEN GANO CADA RONDA',
     ],
     right: [
       'VALOR DE LA MANO',
-      'TRUCO x1 / RETRUCO x2 / VALE 4 x3',
-      'MANO DOBLE DUPLICA EL VALOR',
+      'SIN CANTO: 1 PUNTO',
+      'TRUCO 2 / RETRUCO 3 / VALE 4',
+      'RECHAZO: 1 / 2 / 3 PUNTOS',
       'IRSE AL MAZO RINDE LA MANO',
-      'EL RIVAL SUMA EL TRUCO VIGENTE',
+      'ANTES DEL ENVIDO SUMA 1 MAS',
       '',
       'AL TERMINAR LA MANO,',
-      'TOCÁ SIGUIENTE MANO O APRETÁ ENTER',
-      'NO PUEDE AVANZAR LA IA SOLA',
+      'TOCÁ SIGUIENTE MANO O ENTER',
+      'NO AVANZA LA IA SOLA',
     ],
   },
   {
@@ -113,45 +115,48 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
       'EJEMPLO: 7 ORO + 6 ORO = 33',
       'SIN PAREJA VALE LA CARTA MAYOR',
       '',
-      'CADENA DE CANTOS',
-      'ENVIDO +2',
-      'REAL ENVIDO +3',
-      'FALTA = LO QUE TE FALTA PARA 15',
+      'CADENA ANTES DE TIRAR CARTA',
+      'ENVIDO +2   REAL ENVIDO +3',
+      'ENVIDO ENVIDO +4',
+      'FALTA = LO QUE LE FALTA AL RIVAL',
     ],
     right: [
-      'RECHAZAR ENVIDO: DA 1 PUNTO',
-      'RECHAZAR REAL: DA 2 PUNTOS',
-      'RECHAZAR FALTA: DA LO CANTADO',
+      'RECHAZO: 1 / 2 / 3 / 4 PUNTOS',
+      'FALTA MIRA EL PUNTAJE DEL RIVAL',
+      'SI EMPATAN NO SE PUEDE CANTAR',
+      'SE PUEDE SUBIR SALTANDO ESCALONES',
+      'NO SE PUEDE BAJAR NI REPETIR',
       '',
-      'LA BOLSA SE PAGA AL CERRAR LA MANO',
-      'NO CORTA EL JUEGO',
-      'SI EMPATAN, GANA QUIEN ES MANO',
+      'LA BOLSA SE ACUMULA Y SE PAGA',
+      'AL CERRAR LA MANO, NO CORTA',
+      'EMPATE DE TANTOS: GANA EL MANO',
       'NO SE VE EL ENVIDIO DEL RIVAL',
-      'MIRÁ EL TUYO EN EL PANEL IZQUIERDO',
     ],
   },
   {
     title: 'TRUCO Y ATAJOS',
     left: [
-      'TRUCO -> RETRUCO -> VALE 4',
-      'VALE 1, 2 O 3 PUNTOS',
+      'TRUCO 2 / RETRUCO 3 / VALE 4',
       'QUIERO = ACEPTO ESE VALOR',
       'NO QUIERO = EL OTRO SUMA',
+      'RECHAZO: 1 / 2 / 3 PUNTOS',
       '',
-      'PODES CANTAR EN TU TURNO,',
-      'ANTES DE TIRAR UNA CARTA',
-      'IR AL MAZO = TE RENDIS',
+      'QUIEN RECIBIÓ EL CANTO PUEDE',
+      'SUBIR INCLUSO DESPUES DE QUIERO',
+      'ENVIDO VA PRIMERO SI TE LO',
+      'PIDEN ANTES DE TIRAR UNA CARTA',
     ],
     right: [
       'TECLAS RAPIDAS',
       '1 / 2 / 3  JUGAR CARTA',
-      'E ENVIDIO - R REAL - F FALTA',
-      'T TRUCO - S SUBIR - N NO QUIERO',
-      'M MAZO - ENTER SIGUIENTE MANO',
+      'E ENVIDIO - R REAL - D DOBLE',
+      'F FALTA - T TRUCO - S SUBIR',
+      'N NO QUIERO - M MAZO',
+      'ENTER SIGUIENTE MANO',
       '',
-      'H ABRE ESTA AYUDA',
-      'ESC VOLVER AL MENU',
-      'LAS FLECHAS CAMBIAN DE PAGINA',
+      'H AYUDA - ESC MENU',
+      'FLECHAS CAMBIAN DE PAGINA',
+      'ACÁ NO SE JUEGA CON FLOR',
     ],
   },
 ];
@@ -201,23 +206,24 @@ function tierShort(tier: number): string {
 function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAction['type'], ActionDef>> {
   const p = state.pending;
   const nextTruco = p?.kind === 'truco' ? Math.min(3, p.level + 1) : Math.min(3, (state.trucoLevel || 0) + 1);
-  const bid = p?.kind === 'envido' ? p.bid : Math.max(1, state.targetScore - state.scores[human]);
-  const rejectEnvido = p?.kind === 'envido' ? (p.level === 3 ? p.bid : p.level) : 1;
-  const foldValue = trucoPoints(state.trucoLevel);
+  const bid = p?.kind === 'envido' ? p.bid : Math.max(1, state.targetScore - state.scores[other(human)]);
+  const rejectEnvido = p?.kind === 'envido' ? declinePoints('envido', p.level) : 1;
+  const mazoEnvido = state.played.flat().every((card) => card === null) && state.envidoStatus === 'open' ? 1 : 0;
+  const foldValue = trucoPoints(state.trucoLevel) + mazoEnvido;
 
   return {
     callTruco: {
-      type: 'callTruco', label: 'TRUCO x1', color: COLORS.red, text: COLORS.white,
-      hint: 'Truco por 1 punto. Si lo rechazan, ganás 1.',
+      type: 'callTruco', label: 'TRUCO x2', color: COLORS.red, text: COLORS.white,
+      hint: 'Truco por 2 puntos. Si lo rechazan, ganás 1.',
     },
     raiseTruco: {
       type: 'raiseTruco',
-      label: nextTruco === 2 ? 'RETRUCO x2' : 'VALE 4 x3',
+      label: nextTruco === 2 ? `RETRUCO x${trucoPoints(2)}` : `VALE 4 x${trucoPoints(3)}`,
       color: COLORS.redDark, text: COLORS.white,
-      hint: nextTruco === 2 ? 'Subí a 2 puntos. Rechazo = 2 para vos.' : 'Subí a 3 puntos. Rechazo = 3 para vos.',
+      hint: nextTruco === 2 ? 'Subí a 3 puntos. Rechazo = 2 para vos.' : 'Subí a 4 puntos. Rechazo = 3 para vos.',
     },
     acceptTruco: {
-      type: 'acceptTruco', label: `QUIERO x${p?.kind === 'truco' ? p.level : state.trucoLevel}`,
+      type: 'acceptTruco', label: `QUIERO x${p?.kind === 'truco' ? trucoPoints(p.level) : trucoPoints(state.trucoLevel)}`,
       color: '#277a4c', text: COLORS.white, hint: 'Aceptás el valor y seguís jugando.',
     },
     declineTruco: {
@@ -230,11 +236,15 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
     },
     callRealEnvido: {
       type: 'callRealEnvido', label: 'REAL +3', color: '#9a6a1d', text: COLORS.white,
-      hint: 'Sumás 3 a la bolsa. No se puede cantar envido después.',
+      hint: 'Sumás 3 a la bolsa. Se puede subir a envido envido o falta.',
+    },
+    callEnvidoEnvido: {
+      type: 'callEnvidoEnvido', label: 'ENVIDO ENVIDO +4', color: '#a57718', text: COLORS.white,
+      hint: 'Sumás 4 a la bolsa. El rechazo da 3 puntos. Es el escalón previo al falta.',
     },
     callFalta: {
       type: 'callFalta', label: `FALTA +${bid}`, color: '#7d4a12', text: COLORS.white,
-      hint: `Cantás ${bid}, lo que te falta para 15. Rechazo = ${bid} para vos.`,
+      hint: `Cantás ${bid}: lo que le falta al rival para ${state.targetScore}. Rechazo = 4 para vos.`,
     },
     acceptEnvido: {
       type: 'acceptEnvido', label: `QUIERO +${p?.kind === 'envido' ? p.bid : 2}`,
@@ -246,7 +256,9 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
     },
     fold: {
       type: 'fold', label: `MAZO +${foldValue}`, color: '#464652', text: COLORS.white,
-      hint: 'Te rendís. El rival se lleva el truco vigente y cierra la mano.',
+      hint: mazoEnvido
+        ? 'Te rendís antes de cerrar el envido: rival suma truco + 1 y cierra la mano.'
+        : 'Te rendís. El rival se lleva el truco vigente y cierra la mano.',
     },
     nextHand: {
       type: 'nextHand', label: 'SIGUIENTE MANO', color: '#277a4c', text: COLORS.white,
@@ -604,7 +616,7 @@ export class Renderer {
     drawTextCentered(ctx, `A ${state.targetScore} PUNTOS`, W / 2, 17, COLORS.gray);
 
     let bx = 184;
-    if (state.trucoLevel > 0) bx += drawBadge(ctx, `TRUCO ${state.trucoLevel}`, bx, 30, COLORS.redDark) + 5;
+    if (state.trucoLevel > 0) bx += drawBadge(ctx, `TRUCO ${trucoPoints(state.trucoLevel)}`, bx, 30, COLORS.redDark) + 5;
     if (state.envidoPot > 0) bx += drawBadge(ctx, `BOLSA ${state.envidoPot}`, bx, 30, COLORS.pink) + 5;
     if (state.envidoResult) drawBadge(ctx, `ENV ${state.envidoResult.prize}`, bx, 30, COLORS.goldDark);
 

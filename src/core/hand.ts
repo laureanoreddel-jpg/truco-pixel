@@ -14,33 +14,32 @@ export const SUIT_SHORT: Record<Suit, string> = {
   copa: 'C',
 };
 
-const SPECIALS: Array<{ rank: number; suit: Suit }> = [
-  { rank: 1, suit: 'espada' },
-  { rank: 1, suit: 'basto' },
-  { rank: 7, suit: 'espada' },
-  { rank: 7, suit: 'oro' },
-  { rank: 1, suit: 'oro' },
-  { rank: 7, suit: 'copa' },
-  { rank: 7, suit: 'basto' },
-];
-
 /** Valor de envido de una carta: las figuras valen 0. */
 export function cardValue(card: Card): number {
   return card.rank <= 7 ? card.rank : 0;
 }
 
 /**
- * Fuerza relativa de la carta para resolver una ronda.
- * Empates: mismo número (o todas las figuras del mismo valor).
+ * Jerarquía del truco argentino (de mayor a menor):
+ * 1 espada, 1 basto, 7 espada, 7 oro, 3, 2, 1 oro/copa, 12, 11, 10,
+ * 7 copa/basto, 6, 5, 4. Las cartas del mismo escalón empatan.
  */
 export function cardStrength(card: Card): number {
-  const special = SPECIALS.findIndex((s) => s.rank === card.rank && s.suit === card.suit);
-  if (special >= 0) return 100 - special; // 100..94
-  if (card.rank >= 2 && card.rank <= 6) return 80 + card.rank; // 86..82
-  if (card.rank === 1 && card.suit === 'copa') return 81; // 1 de copa, después del 2
-  if (card.rank === 12) return 40;
-  if (card.rank === 11) return 30;
-  return 20; // 10
+  const { rank, suit } = card;
+  if (rank === 1 && suit === 'espada') return 190;
+  if (rank === 1 && suit === 'basto') return 185;
+  if (rank === 7 && suit === 'espada') return 180;
+  if (rank === 7 && suit === 'oro') return 175;
+  if (rank === 3) return 170;
+  if (rank === 2) return 165;
+  if (rank === 1) return 160; // 1 de oro o copa
+  if (rank === 12) return 150;
+  if (rank === 11) return 140;
+  if (rank === 10) return 130;
+  if (rank === 7) return 120; // 7 de copa o basto
+  if (rank === 6) return 110;
+  if (rank === 5) return 100;
+  return 90; // 4
 }
 
 export function compareCards(a: Card, b: Card): number {

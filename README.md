@@ -10,11 +10,14 @@ Incluye partida contra IA y modo multijugador online con salas.
 - [x] Motor de reglas compartido (cliente y servidor)
 - [x] Jerarquía real de cartas con empates y ronda doble por empate
 - [x] IA con tres niveles de dificultad
-- [x] Interfaz pixel art procedural (sin assets externos)
+- [x] Interfaz pixel art procedural (sin assets externos), cartas grandes con nombre del palo y barra de fuerza
+- [x] Tooltip con puesto en la jerarquía, envidio y comparación contra la carta del rival
+- [x] Botones con los puntos exactos de cada canto y explicación al pasar el mouse
+- [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla
 - [x] Modo 1 jugador vs IA
 - [x] Envido → real envido → falta envido e "irse al mazo"
-- [x] Pantalla de ayuda dentro del juego (`H`)
-- [x] Atajos de teclado para cartas y cantos
+- [x] El envidio del rival permanece oculto
+- [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `R`, `F`, `T`, `S`, `N`, `M`, `Enter`)
 - [x] Multijugador online con salas y reconexión
 - [x] Sonido chiptune generado con WebAudio
 - [x] Build y deploy en un solo proceso

@@ -344,14 +344,26 @@ export function drawCard(
 
   const rankText = String(card.rank);
   const rankScale = rankText.length > 1 ? 2 : 3;
-  drawText(ctx, rankText, x + 5, top + 6, 'rgba(0,0,0,0.18)', rankScale, 0);
-  drawText(ctx, rankText, x + 4, top + 5, suitColor, rankScale, 0);
+  const inkColor = shadeColor(suitColor, -0.32);
+  drawText(ctx, rankText, x + 5, top + 6, 'rgba(0,0,0,0.12)', rankScale, 0);
+  drawText(ctx, rankText, x + 4, top + 5, inkColor, rankScale, 0);
 
   const suitX = x + (CARD_W - 18) / 2;
   drawSuit(ctx, card.suit, suitX + 1, top + 23, 3, 'rgba(0,0,0,0.25)');
   drawSuit(ctx, card.suit, suitX, top + 22, 3);
-  drawText(ctx, SUIT_NAMES[card.suit], x + 4, top + 47, 'rgba(0,0,0,0.16)', 1, 0);
-  drawText(ctx, SUIT_NAMES[card.suit], x + 3, top + 46, suitColor, 1, 0);
+  // Palitos secundarios y brillo: la carta se siente dibujada, no solo tipeada.
+  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  for (const [dx, dy] of [[9, 34], [32, 34], [9, 43], [32, 43]]) ctx.fillRect(x + dx, top + dy, 3, 3);
+  ctx.fillStyle = suitColor;
+  for (const [dx, dy] of [[9, 33], [32, 33], [9, 42], [32, 42]]) ctx.fillRect(x + dx, top + dy, 3, 3);
+  drawSuit(ctx, card.suit, x + CARD_W - 12, top + CARD_H - 15, 1, inkColor);
+  if (highlight) {
+    const shimmer = Math.floor(performance.now() / 220) % 5;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(x + 6 + shimmer * 6, top + 5, 2, CARD_H - 10);
+  }
+  drawText(ctx, SUIT_NAMES[card.suit], x + 4, top + 47, 'rgba(0,0,0,0.12)', 1, 0);
+  drawText(ctx, SUIT_NAMES[card.suit], x + 3, top + 46, inkColor, 1, 0);
 
   // Barra de fuerza segmentada.
   const tier = strengthTier ?? 14;
@@ -511,6 +523,147 @@ function fillPolygon(ctx: CanvasRenderingContext2D, points: Array<[number, numbe
   for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
   ctx.closePath();
   ctx.fill();
+}
+
+export interface RivalMood {
+  thinking?: boolean;
+  celebrating?: boolean;
+  annoyed?: boolean;
+  talking?: boolean;
+}
+
+/**
+ * Rival animado y sentado al fondo: se lo ve durante toda la mano, parpadea,
+ * mueve los brazos cuando canta y cambia de expresión según cómo le va.
+ * Todo es pixel art procedural, sin assets externos.
+ */
+export function drawRivalAction(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  name: string,
+  shirtColor = BUST_COLORS['6'],
+  mood: RivalMood = {},
+  variant = '',
+): void {
+  const s = 2;
+  const px = (col: number, row: number, w: number, h: number, color: string): void => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + col * s, y + row * s, w * s, h * s);
+  };
+  const blink = Math.floor(performance.now() / 3200) % 7 === 0;
+  const bob = mood.thinking ? (Math.floor(performance.now() / 400) % 2) : 0;
+  const top = y + bob * s;
+  const id = variant.toLowerCase();
+  const skin = id.includes('bruja') ? '#b7d39b' : id.includes('pepe') ? '#e7b98d' : '#d9a066';
+  const hair = id.includes('nena') ? '#5a2d1c' : id.includes('campeon') ? '#c8902f' : id.includes('bruja') ? '#6b3fa0' : id.includes('pepe') ? '#d8d2c4' : '#2b2230';
+  const dark = shadeColor(shirtColor, -0.3);
+  const light = shadeColor(shirtColor, 0.18);
+
+  // Sombra y respaldo de la silla.
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(x + 2 * s, top + 46 * s, 36 * s, 3 * s);
+  px(4, 8, 32, 34, '#3a2231');
+  px(5, 9, 30, 32, '#4d2d3d');
+
+  // Cuerpo y hombros (la camisa cambia por rival de campaña).
+  px(8, 22, 24, 26, shirtColor);
+  px(5, 27, 6, 19, dark);
+  px(29, 27, 6, 19, dark);
+  px(9, 23, 22, 3, light);
+  px(18, 23, 4, 20, dark);
+  px(17, 30, 6, 2, '#f0d9b0');
+
+  // Brazos: arriba si está cantando, cruzados si piensa, apoyados si pierde.
+  const armUp = mood.talking || mood.celebrating;
+  px(3, armUp ? 14 : mood.annoyed ? 33 : 30, 7, 8, shirtColor);
+  px(30, armUp ? 12 : mood.annoyed ? 33 : 30, 7, 8, shirtColor);
+  px(2, armUp ? 10 : mood.thinking ? 29 : 37, 6, 5, skin);
+  px(32, armUp ? 8 : mood.thinking ? 30 : 37, 6, 5, skin);
+  if (mood.thinking) {
+    px(6, 25, 5, 5, skin); // mano a la barba
+    px(30, 25, 5, 5, skin);
+  }
+
+  // Cabeza, pelo y orejas.
+  px(12, 3, 16, 19, hair);
+  px(13, 6, 14, 14, skin);
+  px(11, 9, 2, 5, skin);
+  px(27, 9, 2, 5, skin);
+  px(12, 3, 16, 4, hair);
+  px(10, 5, 4, 7, hair);
+  px(26, 5, 4, 7, hair);
+
+  // Cejas y ojos: cambios mínimos de expresión se leen muy bien en pixel art.
+  const brow = mood.annoyed ? 1 : 0;
+  px(15, 10 + brow, 4, 1, hair);
+  px(21, 10 - brow, 4, 1, hair);
+  if (blink) {
+    px(16, 12, 2, 1, hair);
+    px(22, 12, 2, 1, hair);
+  } else {
+    px(16, 12, 2, 2, '#17131c');
+    px(22, 12, 2, 2, '#17131c');
+    px(16, 12, 1, 1, '#fff4d6');
+    px(22, 12, 1, 1, '#fff4d6');
+  }
+  // Rasgos propios de cada rival de campaña.
+  if (id.includes('nena')) {
+    px(10, 2, 20, 3, '#e8504f'); // moño / vincha
+    px(8, 4, 4, 6, '#e8504f');
+    px(28, 4, 4, 6, '#e8504f');
+    px(15, 15, 2, 1, '#f497b8');
+    px(23, 15, 2, 1, '#f497b8');
+  } else if (id.includes('pepe')) {
+    px(14, 16, 12, 2, '#d8d2c4'); // bigote
+    px(17, 15, 6, 1, '#d8d2c4');
+    px(11, 1, 18, 2, '#6b4a2c'); // gorra
+    px(10, 3, 20, 2, '#6b4a2c');
+  } else if (id.includes('bruja')) {
+    px(8, 2, 24, 3, '#4a2a63'); // ala del sombrero
+    px(12, -3, 16, 6, '#4a2a63');
+    px(15, -6, 10, 4, '#4a2a63');
+    px(24, -4, 2, 2, '#ffd166');
+    px(16, 15, 2, 1, '#b7d39b');
+    px(22, 15, 2, 1, '#b7d39b');
+  } else if (id.includes('campeon')) {
+    px(12, 1, 16, 3, '#f0d9b0'); // corona
+    px(12, 0, 2, 3, '#ffd166');
+    px(19, -2, 2, 4, '#ffd166');
+    px(26, 0, 2, 3, '#ffd166');
+    px(15, 12, 4, 1, '#17131c'); // anteojos
+    px(21, 12, 4, 1, '#17131c');
+    px(19, 12, 2, 1, '#17131c');
+  } else if (id.includes('carlos')) {
+    px(14, 16, 12, 2, '#332b3a'); // bigote oscuro
+    px(11, 2, 18, 2, '#332b3a');
+  }
+
+  // Nariz y boca.
+  px(19, 13, 2, 3, '#aa6a3c');
+  if (mood.celebrating) {
+    px(17, 17, 6, 1, '#5c1e24');
+    px(18, 18, 4, 2, '#fff4d6');
+  } else if (mood.annoyed) {
+    px(17, 18, 6, 1, '#5c1e24');
+    px(18, 17, 4, 1, '#5c1e24');
+  } else if (mood.talking) {
+    px(18, 17, 4, 3, '#5c1e24');
+    px(19, 18, 2, 1, '#fff4d6');
+  } else {
+    px(18, 17, 5, 1, '#8f4a3c');
+  }
+  if (mood.thinking) px(24, 15, 2, 4, '#aa6a3c'); // mechón al pensar
+
+  // Cartelito con el nombre del rival, arriba para no tapar el historial.
+  const label = name.toUpperCase().slice(0, 12);
+  ctx.font = 'bold 7px monospace';
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(10,7,14,0.9)';
+  ctx.fillRect(x + 18 * s - tw / 2 - 3, top - 13, tw + 6, 10);
+  ctx.fillStyle = '#ffd166';
+  ctx.fillText(label, x + 18 * s - tw / 2, top - 6);
+  ctx.font = '8px sans-serif';
 }
 
 /**

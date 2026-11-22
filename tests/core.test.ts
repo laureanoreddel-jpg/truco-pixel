@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chooseAiAction } from '../src/core/ai';
 import { createDeck } from '../src/core/deck';
 import { TrucoGame } from '../src/core/game';
-import { cardStrength, envidoScore, strengthTier } from '../src/core/hand';
+import { cardStrength, declinePoints, envidoScore, strengthTier, trucoPoints } from '../src/core/hand';
 import { isStoryUnlocked, markStoryWin, STORY_OPPONENTS } from '../src/core/story';
 import type { Card, Rank, Suit } from '../src/core/types';
 
@@ -51,6 +51,17 @@ describe('baraja y jerarquía', () => {
     expect(strengthTier(card(3, 'copa'))).toBe(5);
     expect(strengthTier(card(4, 'oro'))).toBe(14);
   });
+
+  it('valora la mano sin canto, truco, retruco y vale cuatro en 1/2/3/4', () => {
+    expect([0, 1, 2, 3].map((level) => trucoPoints(level as 0 | 1 | 2 | 3))).toEqual([1, 2, 3, 4]);
+  });
+
+  it('el rechazo entrega el escalón anterior', () => {
+    expect(declinePoints('truco', 1)).toBe(1);
+    expect(declinePoints('truco', 2)).toBe(2);
+    expect(declinePoints('truco', 3)).toBe(3);
+    expect([1, 2, 3, 4].map((level) => declinePoints('envido', level as 1 | 2 | 3 | 4))).toEqual([1, 2, 3, 4]);
+  });
 });
 
 describe('envido', () => {
@@ -89,6 +100,19 @@ describe('flujo de juego', () => {
     expect(game.dispatch(1, { type: 'declineTruco' })).toBe(true);
     expect(game.state.scores[0]).toBe(1);
     expect(game.state.phase).toBe('handEnd');
+  });
+
+  it('ganar la mano con truco, retruco o vale cuatro paga 2, 3 o 4 puntos', () => {
+    for (const [level, expected] of [[1, 2], [2, 3], [3, 4]] as const) {
+      const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+      game.state.trucoLevel = level;
+      game.state.trucoCaller = 0;
+      game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+      game.dispatch(1, { type: 'playCard', cardId: card(7, 'basto').id });
+      game.dispatch(0, { type: 'playCard', cardId: card(2, 'oro').id });
+      game.dispatch(1, { type: 'playCard', cardId: card(6, 'oro').id });
+      expect(game.state.scores[0]).toBe(expected);
+    }
   });
 
   it('aceptar truco y re-trucodefine el valor de la mano', () => {
@@ -132,21 +156,55 @@ describe('flujo de juego', () => {
     expect(game.state.envidoResult).toMatchObject({ winner: 0, score: 33, prize: 5 });
   });
 
-  it('el falta envido apuesta los puntos que le faltan al que lo canta', () => {
+  it('envido envido suma 4 y su rechazo da 3 puntos', () => {
     const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
-    game.state.scores = [8, 2];
+    game.dispatch(0, { type: 'callEnvido' });
+    expect(game.legalActions(1).map((action) => action.type)).toContain('callEnvidoEnvido');
+    game.dispatch(1, { type: 'callEnvidoEnvido' });
+    game.dispatch(0, { type: 'acceptEnvido' });
+    expect(game.state.envidoPot).toBe(6);
+    expect(game.state.envidoResult).toMatchObject({ winner: 0, score: 33, prize: 6 });
+
+    const rejected = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
+    rejected.dispatch(0, { type: 'callEnvido' });
+    rejected.dispatch(1, { type: 'callEnvidoEnvido' });
+    rejected.dispatch(0, { type: 'declineEnvido' });
+    expect(rejected.state.scores[1]).toBe(3);
+    expect(rejected.state.phase).toBe('playing');
+  });
+
+  it('el falta envido apunta a lo que le falta al rival para llegar a 15', () => {
+    const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
+    game.state.scores = [2, 8];
     game.dispatch(0, { type: 'callFalta' });
+    expect(game.state.pending).toMatchObject({ kind: 'envido', bid: 7 });
     game.dispatch(1, { type: 'acceptEnvido' });
     expect(game.state.envidoPot).toBe(7);
     expect(game.state.envidoResult).toEqual({ winner: 0, score: 33, prize: 7 });
   });
 
-  it('irse al mazo entrega la mano al rival', () => {
+  it('rechazar falta envido da 4 puntos, no el monto cantado', () => {
+    const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
+    game.state.scores = [0, 8];
+    game.dispatch(0, { type: 'callFalta' });
+    game.dispatch(1, { type: 'declineEnvido' });
+    expect(game.state.scores[0]).toBe(4);
+    expect(game.state.phase).toBe('playing');
+  });
+
+  it('irse al mazo antes del envido entrega 2 puntos (1 de envido y 1 de truco)', () => {
     const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
     expect(game.legalActions(0).some((a) => a.type === 'fold')).toBe(true);
     game.dispatch(0, { type: 'fold' });
-    expect(game.state.scores[1]).toBe(1);
+    expect(game.state.scores[1]).toBe(2);
     expect(game.state.phase).toBe('handEnd');
+  });
+
+  it('irse al mazo después de tirar carta entrega solo 1 punto', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    game.dispatch(1, { type: 'fold' });
+    expect(game.state.scores[0]).toBe(1);
   });
 
   it('cierra la mano después de tres rondas y permite pasar a la siguiente', () => {
@@ -174,7 +232,7 @@ describe('flujo de juego', () => {
     expect(game.state.phase).toBe('playing');
   });
 
-  it('un empate hace que la ronda siguiente valga doble', () => {
+  it('parda en la primera: gana quien se lleva la segunda y la mano vale 1', () => {
     const game = setup(
       [[card(1, 'oro'), card(2, 'copa'), card(3, 'espada')], [card(1, 'copa'), card(6, 'oro'), card(5, 'copa')]],
     );
@@ -183,10 +241,36 @@ describe('flujo de juego', () => {
     expect(game.state.roundPoints).toEqual([0, 0]);
     game.dispatch(0, { type: 'playCard', cardId: card(2, 'copa').id });
     game.dispatch(1, { type: 'playCard', cardId: card(6, 'oro').id });
-    expect(game.state.roundPoints).toEqual([2, 0]);
+    expect(game.state.roundPoints).toEqual([1, 0]);
     expect(game.state.phase).toBe('handEnd');
-    expect(game.state.scores[0]).toBe(2);
-    expect(game.state.lastHand).toMatchObject({ winner: 0, points: 2, reason: 'mano doble' });
+    expect(game.state.scores[0]).toBe(1);
+    expect(game.state.lastHand).toMatchObject({ winner: 0, points: 1, reason: 'parda' });
+  });
+
+  it('parda en la segunda: gana quien ganó la primera', () => {
+    const game = setup(
+      [[card(1, 'espada'), card(4, 'copa'), card(2, 'oro')], [card(7, 'basto'), card(4, 'oro'), card(5, 'copa')]],
+    );
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(7, 'basto').id });
+    game.dispatch(0, { type: 'playCard', cardId: card(4, 'copa').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(4, 'oro').id });
+    expect(game.state.phase).toBe('handEnd');
+    expect(game.state.lastHand).toMatchObject({ winner: 0, points: 1 });
+  });
+
+  it('tres pardas: gana el mano', () => {
+    const game = setup(
+      [[card(1, 'oro'), card(2, 'copa'), card(3, 'espada')], [card(1, 'copa'), card(2, 'espada'), card(3, 'oro')]],
+    );
+    for (const rank of [0, 1, 2]) {
+      const playerCards = [card(1, 'oro'), card(2, 'copa'), card(3, 'espada')];
+      const rivalCards = [card(1, 'copa'), card(2, 'espada'), card(3, 'oro')];
+      game.dispatch(0, { type: 'playCard', cardId: playerCards[rank].id });
+      game.dispatch(1, { type: 'playCard', cardId: rivalCards[rank].id });
+    }
+    expect(game.state.phase).toBe('handEnd');
+    expect(game.state.lastHand).toMatchObject({ winner: game.state.mano, points: 1, reason: 'tres pardas (mano)' });
   });
 
   it('rechazar retruco entrega 2 puntos', () => {
@@ -197,14 +281,45 @@ describe('flujo de juego', () => {
     expect(game.state.scores[1]).toBe(2);
   });
 
-  it('no se puede volver a cantar envido después del real envido', () => {
+  it('la cadena de envido no baja ni repite escalones, pero permite saltar', () => {
     const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
     game.state.scores = [8, 2];
     game.dispatch(0, { type: 'callEnvido' });
     game.dispatch(1, { type: 'callRealEnvido' });
     const actions = game.legalActions(0).map((a) => a.type);
     expect(actions).not.toContain('callEnvido');
+    expect(actions).not.toContain('callRealEnvido');
+    expect(actions).toContain('callEnvidoEnvido');
     expect(actions).toContain('callFalta');
+    game.dispatch(0, { type: 'callFalta' });
+    expect(game.legalActions(1).map((a) => a.type)).toEqual(['acceptEnvido', 'declineEnvido']);
+  });
+
+  it('el envido va primero y el truco queda diferido', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'callTruco' });
+    expect(game.legalActions(1).map((a) => a.type)).toContain('callEnvido');
+    game.dispatch(1, { type: 'callEnvido' });
+    expect(game.state.pending).toMatchObject({ kind: 'envido', by: 1 });
+    expect(game.state.deferredTruco).toMatchObject({ kind: 'truco', by: 0, level: 1 });
+    game.dispatch(0, { type: 'declineEnvido' });
+    expect(game.state.scores[1]).toBe(1);
+    expect(game.state.pending).toMatchObject({ kind: 'truco', by: 0, level: 1 });
+    expect(game.state.deferredTruco).toBeNull();
+  });
+
+  it('quien recibió el truco puede subir después de aceptar', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'callTruco' });
+    game.dispatch(1, { type: 'acceptTruco' });
+    expect(game.state.trucoLevel).toBe(1);
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    expect(game.legalActions(1).map((a) => a.type)).toContain('raiseTruco');
+    game.dispatch(1, { type: 'raiseTruco' });
+    expect(game.state.pending).toMatchObject({ kind: 'truco', by: 1, level: 2 });
+    game.dispatch(0, { type: 'acceptTruco' });
+    expect(game.state.trucoLevel).toBe(2);
+    expect(game.state.trucoCaller).toBe(1);
   });
 
   it('termina al llegar a 15 puntos', () => {
@@ -242,6 +357,25 @@ describe('IA', () => {
       game.dispatch(player, action);
     }
     expect(game.state.phase).toBe('gameEnd');
+  });
+
+  it('no intenta cantos inválidos en partidas completas de cualquier dificultad', () => {
+    for (const difficulty of ['facil', 'medio', 'dificil'] as const) {
+      for (let seed = 1; seed <= 12; seed++) {
+        const game = new TrucoGame(seed * 977);
+        for (let step = 0; step < 2000 && game.state.phase !== 'gameEnd'; step++) {
+          const player = game.state.pending
+            ? (game.state.pending.by === 0 ? 1 : 0)
+            : game.state.phase === 'handEnd'
+              ? 0
+              : game.state.turn;
+          const action = chooseAiAction(game, player, difficulty);
+          expect(game.legalActions(player).some((a) => a.type === action.type)).toBe(true);
+          expect(game.dispatch(player, action)).toBe(true);
+        }
+        expect(game.state.phase).toBe('gameEnd');
+      }
+    }
   });
 });
 

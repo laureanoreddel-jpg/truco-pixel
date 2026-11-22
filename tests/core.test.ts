@@ -14,25 +14,30 @@ describe('baraja y jerarquía', () => {
     expect(new Set(deck.map((c) => c.id)).size).toBe(40);
   });
 
-  it('ordena correctamente las cartas especiales', () => {
+  it('ordena correctamente las cartas según el reglamento', () => {
     const order: Card[] = [
       card(1, 'espada'),
       card(1, 'basto'),
       card(7, 'espada'),
       card(7, 'oro'),
-      card(1, 'oro'),
-      card(7, 'copa'),
-      card(7, 'basto'),
-      card(6, 'copa'),
+      card(3, 'copa'),
       card(2, 'espada'),
+      card(1, 'oro'),
       card(1, 'copa'),
       card(12, 'oro'),
       card(11, 'copa'),
       card(10, 'basto'),
+      card(7, 'copa'),
+      card(7, 'basto'),
+      card(6, 'oro'),
+      card(5, 'copa'),
+      card(4, 'espada'),
     ];
     for (let i = 1; i < order.length; i++) {
-      expect(cardStrength(order[i - 1])).toBeGreaterThan(cardStrength(order[i]));
+      expect(cardStrength(order[i - 1])).toBeGreaterThanOrEqual(cardStrength(order[i]));
     }
+    expect(cardStrength(card(3, 'copa'))).toBeGreaterThan(cardStrength(card(2, 'espada')));
+    expect(cardStrength(card(2, 'espada'))).toBeGreaterThan(cardStrength(card(1, 'oro')));
   });
 
   it('empata cartas del mismo número y figuras', () => {
@@ -139,7 +144,7 @@ describe('flujo de juego', () => {
 
   it('cierra la mano después de tres rondas y permite pasar a la siguiente', () => {
     const game = setup(
-      [[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]],
+      [[card(1, 'espada'), card(4, 'copa'), card(2, 'oro')], [card(7, 'basto'), card(3, 'copa'), card(5, 'copa')]],
     );
     const play = (player: 0 | 1, played: Card) => {
       expect(game.dispatch(player, { type: 'playCard', cardId: played.id })).toBe(true);
@@ -147,18 +152,52 @@ describe('flujo de juego', () => {
 
     play(0, card(1, 'espada'));
     play(1, card(7, 'basto'));
-    play(0, card(2, 'oro'));
-    play(1, card(6, 'oro'));
+    play(0, card(4, 'copa'));
+    play(1, card(3, 'copa'));
     play(1, card(5, 'copa'));
-    play(0, card(3, 'copa'));
+    play(0, card(2, 'oro'));
 
     expect(game.state.round).toBe(3);
     expect(game.state.phase).toBe('handEnd');
+    expect(game.state.roundPoints).toEqual([2, 1]);
     expect(game.state.played.length).toBe(3);
     expect(game.legalActions(game.state.turn)).toEqual([{ type: 'nextHand' }]);
     expect(game.dispatch(game.state.turn, { type: 'nextHand' })).toBe(true);
     expect(game.state.round).toBe(0);
     expect(game.state.phase).toBe('playing');
+  });
+
+  it('un empate hace que la ronda siguiente valga doble', () => {
+    const game = setup(
+      [[card(1, 'oro'), card(2, 'copa'), card(3, 'espada')], [card(1, 'copa'), card(6, 'oro'), card(5, 'copa')]],
+    );
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'oro').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(1, 'copa').id });
+    expect(game.state.roundPoints).toEqual([0, 0]);
+    game.dispatch(0, { type: 'playCard', cardId: card(2, 'copa').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(6, 'oro').id });
+    expect(game.state.roundPoints).toEqual([2, 0]);
+    expect(game.state.phase).toBe('handEnd');
+    expect(game.state.scores[0]).toBe(2);
+    expect(game.state.lastHand).toMatchObject({ winner: 0, points: 2, reason: 'mano doble' });
+  });
+
+  it('rechazar retruco entrega 2 puntos', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'callTruco' });
+    game.dispatch(1, { type: 'raiseTruco' });
+    expect(game.dispatch(0, { type: 'declineTruco' })).toBe(true);
+    expect(game.state.scores[1]).toBe(2);
+  });
+
+  it('no se puede volver a cantar envido después del real envido', () => {
+    const game = setup([[card(7, 'oro'), card(6, 'oro'), card(3, 'copa')], [card(1, 'basto'), card(2, 'espada'), card(5, 'copa')]]);
+    game.state.scores = [8, 2];
+    game.dispatch(0, { type: 'callEnvido' });
+    game.dispatch(1, { type: 'callRealEnvido' });
+    const actions = game.legalActions(0).map((a) => a.type);
+    expect(actions).not.toContain('callEnvido');
+    expect(actions).toContain('callFalta');
   });
 
   it('termina al llegar a 15 puntos', () => {

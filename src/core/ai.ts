@@ -414,6 +414,10 @@ function fallbackLegalAction(game: TrucoGame, player: PlayerIndex): GameAction {
  * IA de truco: evalúa cada acción legal con simulaciones ligeras de manos
  * rivales y un playout greedy. Compatible con las dificultades de siempre y
  * con perfiles personalizados (por ejemplo, los rivales del modo historia).
+ *
+ * Nota: si `player` no es quien debe actuar, se devuelve una acción válida para
+ * el actor real (`state.pending` o `state.turn`). Los llamadores deben usarla
+ * con el actor devuelto por el estado, no asumir que pertenece a `player`.
  */
 export function chooseAiAction(
   game: TrucoGame,
@@ -433,11 +437,11 @@ export function chooseAiAction(
   if (legal.length === 1) return legal[0];
 
   const rival = other(player);
-  const samples = filterSamplesByEnvido(
-    sampleRivalHands(state, player, profile.samples, rng),
-    state,
-    player,
-  );
+  const rawSamples = sampleRivalHands(state, player, profile.samples, rng);
+  const filteredSamples = filterSamplesByEnvido(rawSamples, state, player);
+  // Si el filtro por envido no deja muestras, evaluar con todas: evita que
+  // todas las acciones queden en -Infinity y se elija la primera por azar.
+  const samples = filteredSamples.length > 0 ? filteredSamples : rawSamples;
   const scratch = new TrucoGame(0, game.targetScore);
   const startScores: [number, number] = [state.scores[0], state.scores[1]];
   const bluffing = rng() < profile.bluff;

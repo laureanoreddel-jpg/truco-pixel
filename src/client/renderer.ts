@@ -258,48 +258,48 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
     },
     acceptTruco: {
       type: 'acceptTruco', label: `QUIERO x${p?.kind === 'truco' ? trucoPoints(p.level) : trucoPoints(state.trucoLevel)}`,
-      color: '#277a4c', text: COLORS.white, hint: 'Aceptás el valor y seguís jugando.',
+      color: COLORS.green, text: COLORS.shadow, hint: 'Aceptás el valor y seguís jugando.',
     },
     declineTruco: {
       type: 'declineTruco', label: `NO (DA ${p?.kind === 'truco' ? p.level : 1})`,
-      color: '#6d2b31', text: COLORS.white, hint: 'No aceptás: el rival se lleva esos puntos y cierra la mano.',
+      color: '#9e1f28', text: COLORS.white, hint: 'No aceptás: el rival se lleva esos puntos y cierra la mano.',
     },
     callEnvido: {
-      type: 'callEnvido', label: 'ENVIDO +2', color: '#8b6b1f', text: COLORS.white,
+      type: 'callEnvido', label: 'ENVIDO +2', color: '#d99a15', text: COLORS.shadow,
       hint: 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
     },
     callRealEnvido: {
-      type: 'callRealEnvido', label: 'REAL +3', color: '#9a6a1d', text: COLORS.white,
+      type: 'callRealEnvido', label: 'REAL +3', color: '#e0a91e', text: COLORS.shadow,
       hint: 'Sumás 3 a los tantos en juego. Sólo se puede subir a falta.',
     },
     callEnvidoEnvido: {
-      type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#a57718', text: COLORS.white,
+      type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#ffc93c', text: COLORS.shadow,
       hint: 'Segundo envido: sumás 2 (4 en total). El rechazo da 2 puntos.',
     },
     callFalta: {
-      type: 'callFalta', label: `FALTA +${bid}`, color: '#7d4a12', text: COLORS.white,
+      type: 'callFalta', label: `FALTA +${bid}`, color: '#d06a1a', text: COLORS.shadow,
       hint: `Cantás ${bid}: lo que le falta a quien va ganando para ${state.targetScore}. Rechazo = ${rejectEnvido} para vos.`,
     },
     acceptEnvido: {
       type: 'acceptEnvido', label: `QUIERO +${p?.kind === 'envido' ? p.bid : 2}`,
-      color: '#277a4c', text: COLORS.white, hint: 'Aceptás la suba. El envido se decide al cerrar la mano.',
+      color: COLORS.green, text: COLORS.shadow, hint: 'Aceptás la suba. El envido se decide al cerrar la mano.',
     },
     declineEnvido: {
       type: 'declineEnvido', label: `NO (DA ${rejectEnvido})`,
-      color: '#6d2b31', text: COLORS.white, hint: 'No aceptás: el rival suma puntos, pero la mano sigue.',
+      color: '#9e1f28', text: COLORS.white, hint: 'No aceptás: el rival suma puntos, pero la mano sigue.',
     },
     fold: {
-      type: 'fold', label: `MAZO (RIVAL +${foldValue})`, color: '#464652', text: COLORS.white,
+      type: 'fold', label: `MAZO (RIVAL +${foldValue})`, color: '#3d8bd8', text: COLORS.white,
       hint: mazoEnvido
         ? 'Te rendís antes de cerrar el envido: rival suma truco + 1 y cierra la mano.'
         : 'Te rendís. El rival se lleva el truco vigente y cierra la mano.',
     },
     nextHand: {
-      type: 'nextHand', label: 'SIGUIENTE MANO', color: '#277a4c', text: COLORS.white,
+      type: 'nextHand', label: 'SIGUIENTE MANO', color: COLORS.green, text: COLORS.shadow,
       hint: 'Reparten de nuevo. Alterna quien arranca.',
     },
     restart: {
-      type: 'restart', label: 'NUEVA PARTIDA', color: '#277a4c', text: COLORS.white,
+      type: 'restart', label: 'NUEVA PARTIDA', color: COLORS.green, text: COLORS.shadow,
       hint: 'Volvés a 0 - 0.',
     },
   };
@@ -397,7 +397,7 @@ export class Renderer {
     const hits: HitBox[] = [];
     hits.push(this.button('menu:story', 'MODO HISTORIA', 70, 100, W - 140, 30, COLORS.goldDark, COLORS.ink, 2, hover === 'menu:story'));
     hits.push(this.button('menu:local', '1 JUGADOR - VS IA', 70, 134, W - 140, 28, COLORS.red, COLORS.white, 2, hover === 'menu:local'));
-    hits.push(this.button('menu:online', 'MULTIJUGADOR ONLINE', 70, 166, W - 140, 28, '#277a4c', COLORS.white, 2, hover === 'menu:online'));
+    hits.push(this.button('menu:online', 'MULTIJUGADOR ONLINE', 70, 166, W - 140, 28, COLORS.green, COLORS.shadow, 2, hover === 'menu:online'));
 
     drawTextCentered(ctx, 'DIFICULTAD DE LA IA (PARTIDA RÁPIDA)', W / 2, 200, COLORS.gold);
     const labels: Record<Difficulty, string> = { facil: 'FACIL', medio: 'MEDIO', dificil: 'DIFICIL' };
@@ -537,7 +537,7 @@ export class Renderer {
 
     const hits: HitBox[] = [];
     if (won && !champion) {
-      hits.push(this.button('story:next', 'SIGUIENTE CAPITULO', 42, 216, 200, 30, '#277a4c', COLORS.white, 1, hover === 'story:next'));
+      hits.push(this.button('story:next', 'SIGUIENTE CAPITULO', 42, 216, 200, 30, COLORS.green, COLORS.shadow, 1, hover === 'story:next'));
       hits.push(this.button('story:map', 'VER MAPA', 254, 216, 184, 30, COLORS.navy, COLORS.gold, 1, hover === 'story:map'));
     } else if (!won) {
       hits.push(this.button('story:retry', 'REINTENTAR', 42, 216, 200, 30, COLORS.red, COLORS.white, 1, hover === 'story:retry'));
@@ -572,7 +572,7 @@ export class Renderer {
       drawTextCentered(ctx, 'SOLO LETRAS - 6 CARACTERES', W / 2, 184, COLORS.gray);
     } else if (!info.code) {
       drawTextCentered(ctx, 'CREÁ UNA SALA Y PASALE EL CODIGO', W / 2, 56, COLORS.cream);
-      hits.push(this.button('online:create', 'CREAR SALA', 50, 82, 180, 34, '#277a4c', COLORS.white, 2, hover === 'online:create'));
+      hits.push(this.button('online:create', 'CREAR SALA', 50, 82, 180, 34, COLORS.green, COLORS.shadow, 2, hover === 'online:create'));
       hits.push(this.button('online:join', 'UNIRME', 250, 82, 180, 34, COLORS.red, COLORS.white, 2, hover === 'online:join'));
       drawTextCentered(ctx, 'DOS JUGADORES - UNA SOLA PARTIDA', W / 2, 142, COLORS.gray);
       drawTextCentered(ctx, 'EL CODIGO TIENE 6 LETRAS', W / 2, 158, COLORS.gray);
@@ -924,7 +924,7 @@ export class Renderer {
         drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 222, COLORS.gray);
       }
       if (last?.truco) drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 234, COLORS.cream);
-      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 162, 244, 156, 20, '#277a4c', COLORS.white, 1, hover === 'action:nextHand'));
+      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 162, 244, 156, 20, COLORS.green, COLORS.shadow, 1, hover === 'action:nextHand'));
     }
 
     if (state.phase === 'gameEnd') {
@@ -937,7 +937,7 @@ export class Renderer {
       this.panel(96, 186, W - 192, 78, COLORS.woodDark, COLORS.gold, true);
       drawTextCenteredShadow(ctx, won ? 'GANASTE' : 'PERDISTE', W / 2, 191, won ? COLORS.green : COLORS.red, 2);
       drawTextCentered(ctx, `${state.scores[0]} - ${state.scores[1]}`, W / 2, 216, COLORS.cream, 2);
-      hits.push(this.button('action:restart', 'NUEVA PARTIDA', 158, 244, 164, 20, '#277a4c', COLORS.white, 1, hover === 'action:restart'));
+      hits.push(this.button('action:restart', 'NUEVA PARTIDA', 158, 244, 164, 20, COLORS.green, COLORS.shadow, 1, hover === 'action:restart'));
     }
 
     return hits;

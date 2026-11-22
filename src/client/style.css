@@ -29,8 +29,15 @@ body::after {
   );
 }
 
+#game-wrap {
+  position: relative;
+  container-type: inline-size;
+  width: var(--game-w, min(calc(100vw - 24px), calc((100vh - 24px) * 16 / 9)));
+}
+
 #game {
-  width: min(calc(100vw - 24px), calc((100vh - 24px) * 16 / 9));
+  display: block;
+  width: 100%;
   height: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -49,6 +56,55 @@ body::after {
 #game:focus-visible {
   outline: 3px solid #ffd166;
   outline-offset: 4px;
+}
+
+#room-code {
+  position: absolute;
+  left: 20%;
+  top: 23.7%;
+  width: 60%;
+  height: 20%;
+  padding: 0 1%;
+  border: 2px solid #ffd166;
+  border-radius: 0;
+  background: #171220;
+  box-sizing: border-box;
+  color: #fff4d6;
+  font: 700 clamp(14px, 5cqw, 24px)/1 monospace;
+  letter-spacing: 0.6em;
+  text-align: center;
+  text-transform: uppercase;
+  caret-color: #ffd166;
+  outline: none;
+}
+
+#room-code[hidden] {
+  display: none;
+}
+
+#room-code::placeholder {
+  color: #6b6170;
+  letter-spacing: 0.2em;
+}
+
+#rotate-tip {
+  display: none;
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(94vw, 440px);
+  margin: 0;
+  color: #ffd166;
+  font: 12px/1.4 monospace;
+  text-align: center;
+  text-shadow: 0 1px 3px #000;
+}
+
+@media (orientation: portrait) and (max-width: 600px) {
+  #rotate-tip {
+    display: block;
+  }
 }
 
 .sr-only {

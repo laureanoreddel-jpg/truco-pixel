@@ -1,5 +1,6 @@
 import type { Difficulty } from '../core/ai';
 import { cardLabel, cardStrength, envidoScore, strengthTier, trucoPoints } from '../core/hand';
+import { isStoryUnlocked, STORY_OPPONENTS, type StoryOpponent } from '../core/story';
 import { other, type Card, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import {
   CARD_H,
@@ -14,6 +15,7 @@ import {
   drawSparkle,
   drawSuit,
   drawText,
+  drawRivalPortrait,
   drawTextCentered,
   drawTextCenteredShadow,
   drawTextShadow,
@@ -33,11 +35,13 @@ export interface HitBox {
 
 export interface GameView {
   human: PlayerIndex;
-  mode: 'local' | 'online';
+  mode: 'local' | 'online' | 'story';
   legal: GameAction[];
   notice: string;
   /** id del elemento bajo el cursor, o null. */
   hover: string | null;
+  /** Rival de campaña, cuando la partida es del modo historia. */
+  opponent?: StoryOpponent;
 }
 
 interface ActionDef {
@@ -156,6 +160,22 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}.` : text;
 }
 
+function wrapText(text: string, maxChars: number): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const word of text.split(/\s+/)) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 function rightText(ctx: CanvasRenderingContext2D, text: string, right: number, y: number, color: string, scale = 1): void {
   drawText(ctx, text, right - textWidth(text, scale), y, color, scale);
 }
@@ -241,11 +261,12 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
 
 export class Renderer {
   private readonly table: HTMLCanvasElement;
-  private readonly gameTable: HTMLCanvasElement;
+  private readonly defaultGameTable: HTMLCanvasElement;
+  private readonly storyTables = new Map<string, HTMLCanvasElement>();
 
   constructor(private readonly ctx: CanvasRenderingContext2D, private readonly width: number, private readonly height: number) {
     this.table = makeTable(width, height);
-    this.gameTable = makeGameTable(width, height);
+    this.defaultGameTable = makeGameTable(width, height);
   }
 
   private get time(): number {
@@ -256,8 +277,17 @@ export class Renderer {
     this.ctx.drawImage(this.table, 0, 0);
   }
 
-  private clearGame(): void {
-    this.ctx.drawImage(this.gameTable, 0, 0);
+  private clearGame(shirtColor?: string): void {
+    let table = this.defaultGameTable;
+    if (shirtColor) {
+      const cached = this.storyTables.get(shirtColor);
+      if (cached) table = cached;
+      else {
+        table = makeGameTable(this.width, this.height, shirtColor);
+        this.storyTables.set(shirtColor, table);
+      }
+    }
+    this.ctx.drawImage(table, 0, 0);
   }
 
   private scaledCard(card: Card, x: number, y: number, scale: number, highlight = false, lift = 0, keyHint?: number, tier?: number): void {
@@ -324,10 +354,11 @@ export class Renderer {
     drawTextCentered(ctx, 'TRUCO ARGENTINO - PARTIDA A 15 PUNTOS', W / 2, 88, COLORS.gray);
 
     const hits: HitBox[] = [];
-    hits.push(this.button('menu:local', '1 JUGADOR - VS IA', 70, 106, W - 140, 32, COLORS.red, COLORS.white, 2, hover === 'menu:local'));
-    hits.push(this.button('menu:online', 'MULTIJUGADOR ONLINE', 70, 146, W - 140, 32, '#277a4c', COLORS.white, 2, hover === 'menu:online'));
+    hits.push(this.button('menu:story', 'MODO HISTORIA', 70, 100, W - 140, 30, COLORS.goldDark, COLORS.ink, 2, hover === 'menu:story'));
+    hits.push(this.button('menu:local', '1 JUGADOR - VS IA', 70, 134, W - 140, 28, COLORS.red, COLORS.white, 2, hover === 'menu:local'));
+    hits.push(this.button('menu:online', 'MULTIJUGADOR ONLINE', 70, 166, W - 140, 28, '#277a4c', COLORS.white, 2, hover === 'menu:online'));
 
-    drawTextCentered(ctx, 'DIFICULTAD DE LA IA', W / 2, 190, COLORS.gold);
+    drawTextCentered(ctx, 'DIFICULTAD DE LA IA (PARTIDA RAPIDA)', W / 2, 200, COLORS.gold);
     const labels: Record<Difficulty, string> = { facil: 'FACIL', medio: 'MEDIO', dificil: 'DIFICIL' };
     DIFFICULTIES.forEach((level, i) => {
       const id = `diff:${level}`;
@@ -337,9 +368,9 @@ export class Renderer {
           id,
           labels[level],
           62 + i * 122,
-          204,
+          212,
           112,
-          22,
+          20,
           selected ? COLORS.gold : COLORS.panelLight,
           selected ? COLORS.ink : COLORS.cream,
           1,
@@ -347,8 +378,131 @@ export class Renderer {
         ),
       );
     });
-    hits.push(this.button('menu:help', 'COMO JUGAR  [H]', 180, 238, 120, 20, COLORS.navy, COLORS.gold, 1, hover === 'menu:help'));
-    drawTextCentered(ctx, 'CARTAS GRANDES + AYUDA EN PANTALLA', W / 2, 262, COLORS.gray);
+    hits.push(this.button('menu:help', 'COMO JUGAR  [H]', 180, 240, 120, 18, COLORS.navy, COLORS.gold, 1, hover === 'menu:help'));
+    drawTextCentered(ctx, 'HISTORIA CON 5 RIVALES - AYUDA CON H', W / 2, 262, COLORS.gray);
+    return hits;
+  }
+
+  drawStoryMap(progress: number, selected: number, hover: string | null): HitBox[] {
+    this.clear();
+    const ctx = this.ctx;
+    const W = this.width;
+    this.dim(0.84);
+    this.panel(14, 6, W - 28, 258, COLORS.panel, COLORS.gold, true);
+
+    drawTextCenteredShadow(ctx, 'MODO HISTORIA', W / 2, 14, COLORS.gold, 3);
+    const complete = progress >= STORY_OPPONENTS.length;
+    drawTextCentered(
+      ctx,
+      complete ? 'CAMPAÑA COMPLETA - GANASTE A TODOS' : 'GANÁ PARA DESBLOQUEAR AL SIGUIENTE',
+      W / 2,
+      36,
+      complete ? COLORS.green : COLORS.gray,
+    );
+
+    const hits: HitBox[] = [];
+    STORY_OPPONENTS.forEach((opponent, index) => {
+      const y = 48 + index * 32;
+      const unlocked = isStoryUnlocked(progress, index);
+      const done = index < progress;
+      const active = index === selected;
+      const id = `story:select:${index}`;
+      hits.push(this.button(id, '', 28, y, W - 56, 28, active ? COLORS.goldDark : COLORS.panelLight, COLORS.cream, 1, hover === id));
+
+      drawText(ctx, String(index + 1), 36, y + 8, active ? COLORS.gold : COLORS.gray, 2);
+      drawText(ctx, unlocked ? opponent.name : '?????', 62, y + 6, unlocked ? COLORS.cream : COLORS.gray);
+      drawText(ctx, opponent.difficulty.toUpperCase(), 152, y + 6, unlocked ? COLORS.pink : COLORS.gray);
+      drawText(ctx, unlocked ? clip(opponent.title, 24) : 'CAPITULO BLOQUEADO', 222, y + 6, unlocked ? COLORS.gray : COLORS.redDark);
+      if (done) drawText(ctx, 'HECHO', W - 74, y + 6, COLORS.green);
+      else if (!unlocked) drawText(ctx, 'BLOQ', W - 74, y + 6, COLORS.red);
+    });
+
+    drawTextCentered(ctx, `PROGRESO ${Math.min(progress, STORY_OPPONENTS.length)} / ${STORY_OPPONENTS.length}`, W / 2, 214, COLORS.gold);
+    hits.push(this.button('story:play', 'JUGAR CAPITULO', 42, 228, 190, 26, COLORS.red, COLORS.white, 1, hover === 'story:play'));
+    hits.push(this.button('story:back', 'VOLVER AL MENU', 248, 228, 190, 26, COLORS.navy, COLORS.gold, 1, hover === 'story:back'));
+    return hits;
+  }
+
+  drawStoryIntro(opponent: StoryOpponent, index: number, hover: string | null): HitBox[] {
+    this.clear();
+    const ctx = this.ctx;
+    const W = this.width;
+    this.dim(0.88);
+    this.panel(12, 6, W - 24, 258, COLORS.panel, COLORS.gold, true);
+
+    drawText(ctx, `CAPITULO ${index + 1} / ${STORY_OPPONENTS.length}`, 26, 14, COLORS.gold);
+    rightText(ctx, opponent.difficulty.toUpperCase(), W - 26, 14, COLORS.pink);
+
+    drawRivalPortrait(ctx, Math.round((W - 112) / 2), 30, 4, opponent.color);
+    drawTextCenteredShadow(ctx, opponent.name, W / 2, 132, COLORS.gold, 2);
+    drawTextCentered(ctx, opponent.title, W / 2, 150, COLORS.cream);
+
+    this.panel(24, 164, W - 48, 50, COLORS.woodDark, COLORS.goldDark);
+    wrapText(`"${opponent.intro}"`, 66).slice(0, 3).forEach((line, i) => {
+      drawText(ctx, line, 34, 171 + i * 12, COLORS.cream);
+    });
+
+    const hits: HitBox[] = [];
+    hits.push(this.button('story:start', 'A JUGAR', 42, 222, 180, 30, COLORS.red, COLORS.white, 2, hover === 'story:start'));
+    hits.push(this.button('story:map', 'ELEGIR OTRO', 258, 222, 180, 30, COLORS.navy, COLORS.gold, 1, hover === 'story:map'));
+    return hits;
+  }
+
+  drawStoryResult(
+    opponent: StoryOpponent,
+    index: number,
+    won: boolean,
+    progress: number,
+    hover: string | null,
+  ): HitBox[] {
+    this.clear();
+    const ctx = this.ctx;
+    const W = this.width;
+    this.dim(0.9);
+    this.panel(12, 6, W - 24, 258, COLORS.panel, COLORS.gold, true);
+
+    const champion = won && index === STORY_OPPONENTS.length - 1;
+    drawTextCenteredShadow(
+      ctx,
+      champion ? 'CAMPEON DEL TRUCO' : won ? 'VICTORIA' : 'DERROTA',
+      W / 2,
+      14,
+      won ? COLORS.gold : COLORS.red,
+      3,
+    );
+    drawTextCentered(ctx, `CAPITULO ${index + 1} - ${opponent.name}`, W / 2, 40, COLORS.cream);
+
+    drawRivalPortrait(ctx, Math.round((W - 84) / 2), 56, 3, opponent.color);
+    if (champion) {
+      for (let i = 0; i < 12; i++) {
+        drawSparkle(ctx, 60 + ((i * 73 + Math.floor(this.time * 21)) % 360), 56 + ((i * 41) % 60), i % 2 ? COLORS.gold : COLORS.pink);
+      }
+    }
+
+    this.panel(24, 138, W - 48, 48, COLORS.woodDark, COLORS.goldDark);
+    const dialogue = won ? opponent.win : opponent.lose;
+    wrapText(dialogue, 64).slice(0, 3).forEach((line, i) => {
+      drawText(ctx, line, 34, 145 + i * 12, COLORS.cream);
+    });
+
+    drawTextCentered(
+      ctx,
+      `PROGRESO ${Math.min(progress, STORY_OPPONENTS.length)} / ${STORY_OPPONENTS.length}`,
+      W / 2,
+      196,
+      COLORS.gold,
+    );
+
+    const hits: HitBox[] = [];
+    if (won && !champion) {
+      hits.push(this.button('story:next', 'SIGUIENTE CAPITULO', 42, 216, 200, 30, '#277a4c', COLORS.white, 1, hover === 'story:next'));
+      hits.push(this.button('story:map', 'VER MAPA', 254, 216, 184, 30, COLORS.navy, COLORS.gold, 1, hover === 'story:map'));
+    } else if (!won) {
+      hits.push(this.button('story:retry', 'REINTENTAR', 42, 216, 200, 30, COLORS.red, COLORS.white, 1, hover === 'story:retry'));
+      hits.push(this.button('story:map', 'VER MAPA', 254, 216, 184, 30, COLORS.navy, COLORS.gold, 1, hover === 'story:map'));
+    } else {
+      hits.push(this.button('story:map', 'VOLVER AL MAPA', 140, 216, 200, 30, COLORS.gold, COLORS.ink, 1, hover === 'story:map'));
+    }
     return hits;
   }
 
@@ -424,25 +578,27 @@ export class Renderer {
   }
 
   drawGame(state: GameState, view: GameView): HitBox[] {
-    this.clearGame();
+    this.clearGame(view.opponent?.color);
     const ctx = this.ctx;
     const W = this.width;
     const human = view.human;
     const rival = other(human);
-    const rivalLabel = view.mode === 'local' ? 'IA' : 'RIVAL';
+    const rivalLabel = view.opponent ? view.opponent.name : view.mode === 'local' ? 'IA' : 'RIVAL';
     const hits: HitBox[] = [];
     const hover = view.hover;
     const defs = actionDefs(state, human);
 
     // ---------- Placas de marcador ----------
     const humanTurn = state.phase === 'playing' && !state.pending && state.turn === human;
-    this.panel(6, 4, 104, 24, 'rgba(18,13,10,0.94)', humanTurn ? COLORS.green : COLORS.goldDark);
-    drawAvatar(ctx, 'player', 10, 10, 1);
-    drawText(ctx, String(state.scores[human]).padStart(2, '0'), 28, 8, COLORS.green, 2);
+    this.panel(6, 2, 104, 28, 'rgba(18,13,10,0.94)', humanTurn ? COLORS.green : COLORS.goldDark);
+    drawAvatar(ctx, 'player', 10, 6, 1);
+    drawText(ctx, 'VOS', 28, 4, COLORS.gold);
+    drawText(ctx, String(state.scores[human]).padStart(2, '0'), 28, 14, COLORS.green, 2);
 
-    this.panel(W - 110, 4, 104, 24, 'rgba(18,13,10,0.94)', state.turn === rival ? COLORS.red : COLORS.goldDark);
-    drawAvatar(ctx, view.mode === 'local' ? 'rival' : 'player', W - 22, 10, 1);
-    rightText(ctx, String(state.scores[rival]).padStart(2, '0'), W - 30, 8, COLORS.red, 2);
+    this.panel(W - 110, 2, 104, 28, 'rgba(18,13,10,0.94)', state.turn === rival ? COLORS.red : COLORS.goldDark);
+    drawAvatar(ctx, view.mode === 'online' ? 'player' : 'rival', W - 22, 6, 1);
+    drawText(ctx, clip(rivalLabel, 12), W - 104, 4, COLORS.gold);
+    rightText(ctx, String(state.scores[rival]).padStart(2, '0'), W - 30, 14, COLORS.red, 2);
 
     drawTextCentered(ctx, `MANO ${String(state.handNumber).padStart(2, '0')}`, W / 2, 5, COLORS.cream);
     drawTextCentered(ctx, `A ${state.targetScore} PUNTOS`, W / 2, 17, COLORS.gray);

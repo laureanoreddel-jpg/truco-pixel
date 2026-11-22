@@ -15,8 +15,11 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] Tooltip con puesto en la jerarquía, envido y comparación contra la carta del rival
 - [x] Botones agrupados en una barra, con los puntos exactos de cada canto y explicación al señalarlos
 - [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla (con detalle al señalarlo)
-- [x] Las cartas jugadas quedan apiladas a los costados y hay una pausa con el resultado de cada ronda
-- [x] Resumen de mano con envido y truco separados, tantos y cartas del ganador del envido
+- [x] Las cartas jugadas se ven grandes y con etiqueta (`RIVAL R1`, `VOS R1`), con las rondas cerradas apiladas y numeradas a los costados
+- [x] Indicador explícito de ronda (`RONDA 1/3`) y pausa con el resultado de cada ronda
+- [x] Rival visible durante toda la mano: sprite animado con expresiones, gestos y rasgos propios por personaje
+- [x] Cartas con palitos, filetes, brillo animado y contraste alto; resumen de mano con envido y truco separados, tantos y cartas del ganador del envido
+- [x] El resumen y el final de partida se dibujan abajo para no tapar la última carta jugada
 - [x] Tooltips bajo demanda para cada botón: explican puntos, rechazo y efecto del canto
 - [x] Frases de los rivales de campaña al cantar, dibujadas como globos sobre la mesa
 - [x] Interruptor de sonido y preferencias (dificultad y audio) guardadas localmente
@@ -130,7 +133,7 @@ No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son v
 src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
-tests/        tests del motor, la IA y el servidor con Vitest (70 pruebas)
+tests/        tests del motor, la IA y el servidor con Vitest (71 pruebas)
 ```
 
 El servidor es autoritativo en online: el cliente envía solo acciones y recibe una **vista privada** del estado (sin la mano del rival ni el envido sin resolver).

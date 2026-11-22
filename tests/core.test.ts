@@ -3,6 +3,7 @@ import { chooseAiAction } from '../src/core/ai';
 import { createDeck } from '../src/core/deck';
 import { TrucoGame } from '../src/core/game';
 import { cardStrength, envidoScore, strengthTier } from '../src/core/hand';
+import { isStoryUnlocked, markStoryWin, STORY_OPPONENTS } from '../src/core/story';
 import type { Card, Rank, Suit } from '../src/core/types';
 
 const card = (rank: Rank, suit: Suit): Card => ({ id: `${rank}-${suit}`, rank, suit });
@@ -241,5 +242,42 @@ describe('IA', () => {
       game.dispatch(player, action);
     }
     expect(game.state.phase).toBe('gameEnd');
+  });
+});
+
+describe('modo historia', () => {
+  it('tiene cinco capítulos con dificultad creciente', () => {
+    expect(STORY_OPPONENTS).toHaveLength(5);
+    expect(STORY_OPPONENTS[0].difficulty).toBe('facil');
+    expect(STORY_OPPONENTS[STORY_OPPONENTS.length - 1].difficulty).toBe('dificil');
+    for (const opponent of STORY_OPPONENTS) {
+      expect(opponent.name.length).toBeGreaterThan(0);
+      expect(opponent.intro.length).toBeGreaterThan(0);
+      expect(opponent.win.length).toBeGreaterThan(0);
+      expect(opponent.lose.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('solo permite jugar los capítulos desbloqueados', () => {
+    expect(isStoryUnlocked(0, 0)).toBe(true);
+    expect(isStoryUnlocked(0, 1)).toBe(false);
+    expect(isStoryUnlocked(2, 2)).toBe(true);
+    expect(isStoryUnlocked(5, 4)).toBe(true);
+    expect(isStoryUnlocked(5, 5)).toBe(false);
+  });
+
+  it('cada victoria desbloquea el capítulo siguiente hasta completar la campaña', () => {
+    let progress = 0;
+    for (let index = 0; index < STORY_OPPONENTS.length; index++) {
+      progress = markStoryWin(progress, index);
+      expect(progress).toBe(index + 1);
+    }
+    expect(progress).toBe(STORY_OPPONENTS.length);
+    expect(isStoryUnlocked(progress, STORY_OPPONENTS.length - 1)).toBe(true);
+  });
+
+  it('el progreso nunca retrocede', () => {
+    expect(markStoryWin(3, 0)).toBe(3);
+    expect(markStoryWin(5, 0)).toBe(5);
   });
 });

@@ -92,6 +92,19 @@ describe('flujo de juego', () => {
     expect(game.state.turn).toBe(0);
   });
 
+  it('el registro deja claro qué carta tiró cada jugador y usa frases gramaticales', () => {
+    const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
+    game.dispatch(0, { type: 'callTruco' });
+    expect(game.state.log.join(' ')).not.toMatch(/(Vos|Rival) dice/);
+    game.dispatch(1, { type: 'acceptTruco' });
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(7, 'basto').id });
+    const log = game.state.log.join(' | ');
+    expect(log).toContain('Jugador 1 juega 1 de espada');
+    expect(log).toContain('Jugador 2 juega 7 de basto');
+    expect(log).toMatch(/Ronda 1 · Jugador [12]/);
+  });
+
   it('rechazar truco da 1 punto y cierra la mano', () => {
     const game = setup([[card(1, 'espada'), card(2, 'oro'), card(3, 'copa')], [card(7, 'basto'), card(6, 'oro'), card(5, 'copa')]]);
     expect(game.dispatch(0, { type: 'callTruco' })).toBe(true);
@@ -208,10 +221,14 @@ describe('flujo de juego', () => {
     expect(game.legalActions(1).map((action) => action.type)).toContain('callEnvido');
     game.dispatch(1, { type: 'callEnvido' });
     expect(game.state.pending).toMatchObject({ kind: 'envido', by: 1 });
-    // El mano ya tiró: no puede responder con otro canto.
-    expect(game.legalActions(0)).toEqual([
-      { type: 'acceptEnvido' },
-      { type: 'declineEnvido' },
+    // Según el reglamento, quien ya tiró su primera carta puede responder el envido.
+    expect(game.legalActions(0).map((action) => action.type)).toEqual([
+      'acceptEnvido',
+      'declineEnvido',
+      'callEnvido',
+      'callRealEnvido',
+      'callFalta',
+      'callEnvidoEnvido',
     ]);
   });
 

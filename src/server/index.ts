@@ -404,11 +404,46 @@ function deleteRoom(room: Room, allRooms: Map<string, Room>, bindings: Map<strin
   for (const seat of room.seats) {
     if (seat.token) bindings.delete(seat.token);
     if (seat.socket) {
-      const meta = metaOf(seat.socket);
+      const socket = seat.socket;
+      const meta = metaOf(socket);
       meta.room = undefined;
       meta.player = undefined;
+      // Avisar con un close explícito: sin él el cliente sigue en la mesa y
+      // no dispara su flujo de reconexión / reapertura del menú online.
+      if (typeof socket.close === 'function') socket.close(4001, 'Sala cerrada');
     }
   }
+}
+
+/** Un asiento desconectado sigue siendo recuperable mientras su token esté vivo. */
+function recoverable(seat: Seat, now: number, graceMs: number): boolean {
+  return seat.socket !== null || (seat.token !== '' && seat.tokenExpiresAt > now);
+}
+
+/** Libera tokens vencidos de asientos desconectados. Devuelve cuántos se liberaron. */
+export function expireDisconnectedTokens(
+  room: Room,
+  now: number,
+  bindings: Map<string, TokenBinding>,
+): number {
+  let expired = 0;
+  for (const player of [0, 1] as PlayerIndex[]) {
+    const seat = room.seats[player];
+    if (seat.socket === null && seat.token !== '' && seat.tokenExpiresAt <= now) {
+      clearSeat(room, player, bindings);
+      expired += 1;
+    }
+  }
+  return expired;
+}
+
+/** Primer lugar libre para un nuevo jugador; respeta la gracia de reconexión. */
+export function availableSeatForJoin(room: Room, now: number): PlayerIndex | null {
+  for (const player of [0, 1] as PlayerIndex[]) {
+    const seat = room.seats[player];
+    if (seat.socket === null && (seat.token === '' || seat.tokenExpiresAt <= now)) return player;
+  }
+  return null;
 }
 
 /**
@@ -422,26 +457,18 @@ export function pruneRooms(
   policy: PrunePolicy = {},
 ): PruneResult {
   const roomIdleMs = policy.roomIdleMs ?? ROOM_IDLE_MS;
-  const tokenGraceMs = policy.tokenGraceMs ?? TOKEN_GRACE_MS;
   const result: PruneResult = { removed: [], expiredSeats: 0, expiredTokens: 0 };
 
   for (const [code, room] of allRooms) {
-    for (const player of [0, 1] as PlayerIndex[]) {
-      const seat = room.seats[player];
-      // Mientras el socket está abierto el token sigue vivo; la gracia aplica al desconectado.
-      if (seat.token && seat.socket === null && seat.tokenExpiresAt <= now) {
-        if (bindings.get(seat.token)?.room === room && bindings.get(seat.token)?.player === player) {
-          bindings.delete(seat.token);
-          result.expiredTokens += 1;
-        }
-        room.seats[player] = newSeat();
-        result.expiredSeats += 1;
-      }
-    }
+    // Mientras el socket está abierto el token sigue vivo; la gracia aplica al desconectado.
+    const tokensBefore = bindings.size;
+    result.expiredSeats += expireDisconnectedTokens(room, now, bindings);
+    result.expiredTokens += tokensBefore - bindings.size;
 
     const anyConnected = room.seats.some((seat) => seat.socket !== null);
+    const anyRecoverable = room.seats.some((seat) => recoverable(seat, now, TOKEN_GRACE_MS));
     const idle = now - room.lastActivity > roomIdleMs;
-    if (!anyConnected || idle) {
+    if ((!anyConnected && !anyRecoverable) || idle) {
       deleteRoom(room, allRooms, bindings);
       result.removed.push(code);
       logEvent(`Sala ${code} eliminada (${idle ? 'inactiva' : 'huérfana'})`);
@@ -557,9 +584,13 @@ function detach(socket: WebSocket, now: number, allRooms: Map<string, Room>, bin
   announceOpponent(room);
   logEvent(`Sala ${room.code}: jugador ${player} desconectado`);
 
-  if (room.seats.every((candidate) => candidate.socket === null)) {
+  // Mantener la sala si queda un token válido: caídas simultáneas (suspensión
+  // del celular, deploy, cambio de red) no deben destruir la partida.
+  const anyConnected = room.seats.some((candidate) => candidate.socket !== null);
+  const anyRecoverable = room.seats.some((candidate) => recoverable(candidate, now, TOKEN_GRACE_MS));
+  if (!anyConnected && !anyRecoverable) {
     deleteRoom(room, allRooms, bindings);
-    logEvent(`Sala ${room.code} eliminada (ambos jugadores desconectados)`);
+    logEvent(`Sala ${room.code} eliminada (ambos jugadores desconectados sin token vigente)`);
   }
 }
 
@@ -608,17 +639,18 @@ function handleMessage(
       send(socket, { type: 'error', message: 'No existe esa sala.' });
       return;
     }
-    const rivalSeat = room.seats[1];
-    if (rivalSeat.socket === null && rivalSeat.token && rivalSeat.tokenExpiresAt <= now) {
-      clearSeat(room, 1, bindings);
-    }
-    if (room.seats[1].socket !== null || room.seats[1].token !== '') {
-      send(socket, { type: 'error', message: 'La sala está llena.' });
+    expireDisconnectedTokens(room, now, bindings);
+    const freeSeat = availableSeatForJoin(room, now);
+    if (freeSeat === null) {
+      send(socket, {
+        type: 'error',
+        message: 'La sala está llena o el lugar está reservado por unos minutos para reconectar.',
+      });
       return;
     }
     detach(socket, now, allRooms, bindings);
-    attach(room, 1, socket, randomUUID(), room.game.getState(), now, allRooms, bindings);
-    logEvent(`Sala ${room.code}: jugador 1 se unió`);
+    attach(room, freeSeat, socket, randomUUID(), room.game.getState(), now, allRooms, bindings);
+    logEvent(`Sala ${room.code}: jugador ${freeSeat} se unió`);
     return;
   }
 
@@ -629,17 +661,17 @@ function handleMessage(
   }
   const room = meta.room;
   const player = meta.player;
-  const rival = room.seats[player === 0 ? 1 : 0];
-  if (!rival.socket || rival.socket.readyState !== WebSocket.OPEN) {
-    send(socket, { type: 'error', message: 'El rival no está conectado.' });
-    return;
-  }
+  // El estado es autoritativo: se puede seguir jugando con el rival ausente y
+  // se le sincroniza todo al reconectar. Bloquear sólo congelaba la partida.
   if (!room.game.dispatch(player, message.action)) {
     send(socket, { type: 'error', message: 'Jugada no permitida.' });
     return;
   }
   touch(room, now);
-  room.seats[player].tokenExpiresAt = now + TOKEN_GRACE_MS;
+  const seat = room.seats[player];
+  seat.tokenExpiresAt = now + TOKEN_GRACE_MS;
+  const binding = bindings.get(seat.token);
+  if (binding) binding.expiresAt = seat.tokenExpiresAt;
   broadcast(room);
 }
 

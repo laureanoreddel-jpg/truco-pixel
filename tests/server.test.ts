@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { TrucoGame } from '../src/core/game';
 import {
   cacheControlFor,
+  clientStateFor,
   contentTypeFor,
   createRoom,
   createRoomCode,
@@ -22,15 +24,15 @@ const fakeSocket = (): Socket => ({}) as Socket;
 const VALID_UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
 describe('códigos de sala y tokens', () => {
-  it('acepta sólo códigos de 4 a 6 letras sin caracteres ambiguos', () => {
-    for (const code of ['ABCD', 'ABCDEF', 'ABCDEFGHJKLMNPQRSTUV'.slice(0, 6)]) {
+  it('acepta sólo códigos de 6 letras sin caracteres ambiguos', () => {
+    for (const code of ['ABCDEF', 'ABCDEFGHJKLMNPQRSTUV'.slice(0, 6)]) {
       expect(isRoomCode(code)).toBe(true);
     }
-    for (const code of ['', 'ABC', 'ABCDEFG', 'AB0D', 'ABOD', 'AB1D', 'ABID', 'ab-cd', 'AB CD', 1234, null, {}]) {
+    for (const code of ['', 'ABCD', 'ABCDEFG', 'AB0DEF', 'ABODEF', 'AB1DEF', 'ABIDEF', 'ab-cde', 'AB CDE', 1234, null, {}]) {
       expect(isRoomCode(code)).toBe(false);
     }
-    expect(normalizeRoomCode(' abcd ')).toBe('ABCD');
-    expect(normalizeRoomCode('AB0D')).toBeNull();
+    expect(normalizeRoomCode(' abcdef ')).toBe('ABCDEF');
+    expect(normalizeRoomCode('AB0DEF')).toBeNull();
     expect(normalizeRoomCode(42)).toBeNull();
   });
 
@@ -41,9 +43,10 @@ describe('códigos de sala y tokens', () => {
       expect(isRoomCode(code)).toBe(true);
       expect(/[01OI]/u.test(code)).toBe(false);
     }
-    expect(createRoomCode(new Set(), 4, () => 0)).toBe('AAAA');
-    // Si el código elegido está ocupado, crece de longitud antes de repetirlo.
-    expect(createRoomCode(new Set(['AAAA']), 4, () => 0)).toBe('AAAAA');
+    expect(createRoomCode(new Set(), 6, () => 0)).toBe('AAAAAA');
+    // Si el código elegido está ocupado, prueba otra combinación antes de fallar.
+    let index = 0;
+    expect(createRoomCode(new Set(['ABCDEF']), 6, () => index++ % 24)).toBe('GHJKLM');
   });
 
   it('valida tokens con formato UUID v4', () => {
@@ -57,9 +60,9 @@ describe('códigos de sala y tokens', () => {
 describe('validación de mensajes', () => {
   it('acepta create, join y action bien formados', () => {
     expect(validateClientMessage('{"type":"create"}')).toEqual({ ok: true, message: { type: 'create' } });
-    expect(validateClientMessage('{"type":"join","code":" abcd "}')).toEqual({
+    expect(validateClientMessage('{"type":"join","code":" abcdef "}')).toEqual({
       ok: true,
-      message: { type: 'join', code: 'ABCD' },
+      message: { type: 'join', code: 'ABCDEF' },
     });
     expect(validateClientMessage('{"type":"action","action":{"type":"callTruco"}}')).toEqual({
       ok: true,
@@ -84,7 +87,8 @@ describe('validación de mensajes', () => {
       '{"type":"create","extra":1}',
       '{"type":"join"}',
       '{"type":"join","code":1234}',
-      '{"type":"join","code":"AB0D"}',
+      '{"type":"join","code":"ABCD"}',
+      '{"type":"join","code":"AB0DEF"}',
       '{"type":"join","code":"ABCD","extra":true}',
       '{"type":"action"}',
       '{"type":"action","action":null}',
@@ -200,6 +204,47 @@ describe('poda de salas', () => {
     allRooms.set(room.code, room);
 
     expect(pruneRooms(allRooms, now + 1_001, bindings, { roomIdleMs: 1_000 }).removed).toEqual(['QRST']);
+  });
+});
+
+describe('vista privada del estado online', () => {
+  const card = (rank: 1 | 7 | 6, suit: 'oro' | 'espada') => ({ id: `${rank}-${suit}`, rank, suit });
+
+  it('nunca envía la mano del rival ni sus cartas ocultas', () => {
+    const game = new TrucoGame(7);
+    game.state.hands = [
+      [card(7, 'oro'), card(6, 'oro'), card(1, 'espada')],
+      [card(7, 'espada'), card(6, 'espada'), card(1, 'oro')],
+    ];
+    const state = game.getState();
+    for (const viewer of [0, 1] as const) {
+      const view = clientStateFor(state, viewer);
+      expect(view.hands[viewer]).toEqual(state.hands[viewer]);
+      expect(view.hands[viewer === 0 ? 1 : 0]).toEqual([]);
+      expect(view.handCounts).toEqual([3, 3]);
+      if (viewer === 0) expect(JSON.stringify(view)).not.toContain('6-espada');
+      else expect(JSON.stringify(view)).toContain('6-espada');
+    }
+  });
+
+  it('oculta el envido resuelto hasta el cierre de la mano y usa nombres relativos', () => {
+    const game = new TrucoGame(9);
+    game.state.hands = [
+      [card(7, 'oro'), card(6, 'oro'), card(1, 'espada')],
+      [card(7, 'espada'), card(6, 'espada'), card(1, 'oro')],
+    ];
+    game.dispatch(0, { type: 'callEnvido' });
+    game.dispatch(1, { type: 'acceptEnvido' });
+    game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
+    game.dispatch(1, { type: 'playCard', cardId: card(7, 'espada').id });
+    const playing = clientStateFor(game.getState(), 1);
+    expect(playing.envidoResult).toBeNull();
+    expect(playing.lastEvent).not.toContain('33');
+    expect(playing.log.join(' ')).toContain('Vos');
+
+    const closed = game.getState();
+    closed.phase = 'handEnd';
+    expect(clientStateFor(closed, 1).envidoResult?.score).toBe(33);
   });
 });
 

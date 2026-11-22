@@ -7,7 +7,7 @@ body {
   margin: 0;
   height: 100%;
   background:
-    radial-gradient(circle at 50% 40%, #221a2c 0%, #120e1a 55%, #08060d 100%);
+    radial-gradient(circle at 50% 40%, #1a1210 0%, #090607 55%, #000000 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -41,13 +41,13 @@ body::after {
   height: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  border: 2px solid #6b4426;
-  border-radius: 6px;
-  outline: 2px solid #0d0a12;
+  border: 3px solid #000000;
+  border-radius: 2px;
+  outline: 2px solid #1a1210;
   box-shadow:
-    0 0 0 4px #241c18,
-    0 0 0 6px rgba(255, 209, 102, 0.15),
-    0 18px 60px rgba(0, 0, 0, 0.85);
+    0 0 0 4px #5a3520,
+    0 0 0 6px rgba(255, 201, 60, 0.35),
+    0 18px 60px rgba(0, 0, 0, 0.95);
   touch-action: none;
   cursor: pointer;
   user-select: none;

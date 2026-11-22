@@ -9,18 +9,22 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 
 - [x] Motor de reglas compartido (cliente y servidor)
 - [x] Jerarquía real de cartas y regla de pardas del reglamento (empates)
-- [x] IA con tres niveles de dificultad
+- [x] IA con tres niveles de dificultad y decisión por simulación ligera (perfiles de campaña con personalidad propia)
 - [x] Interfaz en primera persona 2D: mesa en perspectiva, rival sentado enfrente y cartas en profundidad
 - [x] Pantalla de juego minimalista: puntajes, rondas como puntos, tooltips bajo demanda y sin paneles de texto
 - [x] Tooltip con puesto en la jerarquía, envidio y comparación contra la carta del rival
 - [x] Botones con los puntos exactos de cada canto y explicación al pasar el mouse
-- [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla
+- [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla (con detalle al señalarlo)
+- [x] Tooltips bajo demanda para cada botón: explican puntos, rechazo y efecto del canto
+- [x] Frases de los rivales de campaña al cantar, dibujadas como globos sobre la mesa
+- [x] Interruptor de sonido y preferencias (dificultad y audio) guardadas localmente
+- [x] Anuncios para lectores de pantalla mediante una región `aria-live`
 - [x] Modo historia: 5 capítulos, rivales con personalidad, diálogos y progreso guardado
 - [x] Modo 1 jugador vs IA (partida rápida con dificultad elegible)
 - [x] Cadena completa de envido: envido → real → envido envido → falta, con prioridad sobre el truco e "irse al mazo"
 - [x] El envidio del rival permanece oculto
 - [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `R`, `F`, `T`, `S`, `N`, `M`, `Enter`)
-- [x] Multijugador online con salas y reconexión
+- [x] Multijugador online con salas, códigos de 4–6 letras, reconexión por pestaña y servidor autoritativo blindado
 - [x] Sonido chiptune generado con WebAudio
 - [x] Build y deploy en un solo proceso
 
@@ -70,8 +74,10 @@ npm run typecheck
 
 - Elegí **Modo historia** (campaña de 5 rivales), **1 jugador** (partida rápida contra IA) o **Multijugador**.
 - En el modo historia, ganás para desbloquear el capítulo siguiente. El progreso queda guardado en el navegador.
-- En online, creá una sala y compartí el código de 4 letras, o unite con el código de otro jugador.
-- Pasá el mouse sobre una carta para ver su nombre; hacé clic para jugarla.
+- En online, creá una sala y compartí el código (4–6 letras), o unite con el código de otro jugador: escribilo dentro del canvas con letras A–Z, borrá con `Backspace` y confirmá con `Enter`.
+- Pasá el mouse sobre una carta para ver su jerarquía, envido y comparación; hacé clic para jugarla.
+- Señalá un botón de acción para leer su tooltip, o los puntitos de rondas para ver quién ganó cada una y quién es mano.
+- El borde del marcador parpadea para indicar de quién es el turno. El botón `S` (o `SONIDO ON`) activa y desactiva el audio.
 - Los botones de acción aparecen cuando es tu turno o cuando tenés que responder un canto.
 - Al cerrar la mano, tocá **SIGUIENTE MANO** para seguir.
 
@@ -89,8 +95,9 @@ npm run typecheck
 | `N` | No quiero |
 | `M` | Irse al mazo |
 | `Enter` | Siguiente mano / nueva partida |
-| `H` | Ayuda |
-| `Esc` | Menú |
+| `H` | Ayuda (o volver desde la ayuda) |
+| `Esc` | Menú / salir de la ayuda |
+| `A–Z`, `Backspace`, `Enter` | Escribir, corregir y confirmar el código de sala |
 
 ## Reglas implementadas
 
@@ -116,7 +123,7 @@ No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son v
 src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
-tests/        tests del motor con Vitest
+tests/        tests del motor, la IA y el servidor con Vitest (60 pruebas)
 ```
 
 El servidor es autoritativo en online: el cliente envía solo acciones y recibe el estado completo.

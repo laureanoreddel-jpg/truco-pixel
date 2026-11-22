@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" shape-rendering="crispEdges">
+  <rect width="64" height="64" fill="#1e130d"/>
+  <rect x="10" y="8" width="38" height="50" fill="#0a0710"/>
+  <rect x="12" y="10" width="34" height="46" fill="#fffdf4"/>
+  <rect x="15" y="13" width="28" height="40" fill="#1c6b50"/>
+  <text x="26" y="40" font-family="monospace" font-size="26" font-weight="bold" fill="#ffd166">T</text>
+  <path d="M48 18h10v38H48z" fill="#7a4f2c"/>
+  <path d="M48 18l5-6 5 6z" fill="#ffd166"/>
+</svg>

@@ -8,7 +8,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 ## Estado
 
 - [x] Motor de reglas compartido (cliente y servidor)
-- [x] Jerarquía real de cartas con empates y ronda doble por empate
+- [x] Jerarquía real de cartas y regla de pardas del reglamento (empates)
 - [x] IA con tres niveles de dificultad
 - [x] Interfaz en primera persona 2D: mesa en perspectiva, rival sentado enfrente y cartas en profundidad
 - [x] Pantalla de juego minimalista: puntajes, rondas como puntos, tooltips bajo demanda y sin paneles de texto
@@ -17,7 +17,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla
 - [x] Modo historia: 5 capítulos, rivales con personalidad, diálogos y progreso guardado
 - [x] Modo 1 jugador vs IA (partida rápida con dificultad elegible)
-- [x] Envido → real envido → falta envido e "irse al mazo"
+- [x] Cadena completa de envido: envido → real → envido envido → falta, con prioridad sobre el truco e "irse al mazo"
 - [x] El envidio del rival permanece oculto
 - [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `R`, `F`, `T`, `S`, `N`, `M`, `Enter`)
 - [x] Multijugador online con salas y reconexión
@@ -82,6 +82,7 @@ npm run typecheck
 | `1`, `2`, `3` | Jugar la carta 1, 2 o 3 |
 | `E` | Envido / aceptar envido |
 | `R` | Real envido |
+| `D` | Envido envido |
 | `F` | Falta envido |
 | `T` | Truco / aceptar truco |
 | `S` | Subir (retruco / vale cuatro) |
@@ -93,17 +94,21 @@ npm run typecheck
 
 ## Reglas implementadas
 
-Basadas en el reglamento del truco argentino, sin flor ni contraflor.
+Basadas en el reglamento del truco argentino (ASART y reglamentos públicos de torneos), sin flor ni contraflor. Fuentes consultadas: [trucoargentino.com.ar](https://trucoargentino.com.ar/reglas), [truco.ar](https://truco.ar/reglas), [Truco Wiki](https://truco.wiki), [trucoreal.com](https://trucoreal.com/reglas) y [TrucoBits](https://trucobits.com/blog/reglas-del-truco-argentino).
 
-- Mazo de 40 cartas (1–7, 10, 11, 12 en cuatro palos).
-- **Jerarquía** (mayor a menor): 1 espada, 1 basto, 7 espada, 7 oro, 3, 2, 1 oro/copa, 12, 11, 10, 7 copa/basto, 6, 5, 4. Los cartas del mismo escalón empatan.
-- Tres cartas por jugador; gana quien toma **2 de 3 rondas**. Si una ronda empata, la **siguiente vale doble** y eso define la mano.
-- **Envidio**: 20 + las dos cartas del mismo palo más altas; sin pareja, vale la carta mayor. Las figuras valen 0.
-- Apuestas antes de jugar la primera carta, en cadena: **envido +2 → real envido +3 → falta envido + lo que te falta para llegar a 15**. La bolsa se acumula y se paga a quien gana el envido al cerrar la mano.
-- Rechazar: envido da 1 punto, real envido 2, falta envido los puntos cantados. No cierra la mano.
-- **Truco → retruco → vale cuatro** (1/2/3 puntos). Rechazar entrega esos puntos a quien cantó y cierra la mano.
-- **Irse al mazo**: en tu turno te rendís; el rival se lleva el valor del truco vigente.
-- Gana quien llega a **15 puntos**.
+- Mazo de 40 cartas (1–7, 10, 11, 12 en cuatro palos), 3 cartas por jugador.
+- **Jerarquía** (mayor a menor): 1 espada, 1 basto, 7 espada, 7 oro, 3, 2, 1 oro/copa, 12, 11, 10, 7 copa/basto, 6, 5, 4. Las cartas del mismo escalón empatan.
+- Gana quien toma **2 de 3 rondas**. **Pardas**: si se empata la primera, decide la segunda; si se empata la segunda, gana quien ganó la primera; si se empata la tercera, vuelve a quien ganó la primera; con tres pardas gana el **mano**. El valor de la mano no se duplica por una parda.
+- **Envido**: 20 + las dos cartas del mismo palo más altas; sin pareja, vale la carta mayor. Las figuras valen 0. El empate lo gana el mano.
+- Solo se canta **antes de la primera carta**. Cadena: **envido +2 → real envido +3 → envido envido +4 → falta envido**. Se puede subir saltando escalones, pero no bajar ni repetir. La bolsa se acumula y se paga al cerrar la mano.
+- **Falta envido**: vale lo que le falta **al rival** para llegar a 15 (no lo que te falta a vos); no se puede cantar empatados.
+- Rechazar un canto da el escalón anterior: **1 / 2 / 3 / 4** puntos (envido / real / envido envido / falta). No cierra la mano.
+- Si te cantan truco antes de tirar la primera carta, podés responder **envido va primero**: se resuelve el envido y después vuelve el truco pendiente.
+- **Truco → retruco → vale cuatro**: la mano vale **2 / 3 / 4** puntos. Rechazar da **1 / 2 / 3** a quien cantó y cierra la mano. Quien recibió el canto puede subir incluso después de aceptar.
+- **Irse al mazo**: el rival se lleva el valor del truco vigente; si es antes de cerrar el turno del envido, suma 1 punto extra.
+- Gana quien llega a **15 puntos**. En 1 vs 1 el rol de **mano** (quien tira primero y gana los empates) alterna en cada reparto.
+
+No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son variantes opcionales de algunas mesas.
 
 ## Estructura
 

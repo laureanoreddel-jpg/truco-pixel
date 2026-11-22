@@ -410,7 +410,134 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, kind: 'rival' | 'playe
   }
 }
 
-/** Mesa de fieltro dibujada una sola vez en un canvas offscreen. */
+const RIVAL_BUST = [
+  '........................',
+  '........111111..........',
+  '.......1111111111.......',
+  '......111111111111......',
+  '......122222222221......',
+  '......122222222221......',
+  '......12322222321.......',
+  '......122222222221......',
+  '......122222222221......',
+  '.......122222221........',
+  '........1222221.........',
+  '.........12221..........',
+  '........4444444444......',
+  '.......444444444444.....',
+  '......44444444444444....',
+  '.....4444444444444444...',
+  '....444444444444444444..',
+  '....445544444444554444..',
+  '....444444444444444444..',
+  '...44444444444444444444.',
+];
+
+const BUST_COLORS: Record<string, string> = {
+  '1': '#2b2230',
+  '2': '#d9a066',
+  '3': '#17131c',
+  '4': '#b23a3f',
+  '5': '#7d2a30',
+};
+
+/** Retrato del rival sentado al otro lado de la mesa. */
+export function drawRivalPortrait(ctx: CanvasRenderingContext2D, x: number, y: number, scale = 3): void {
+  RIVAL_BUST.forEach((row, rowIndex) => {
+    for (let col = 0; col < row.length; col++) {
+      const color = BUST_COLORS[row[col]];
+      if (color) ctx.fillRect(x + col * scale, y + rowIndex * scale, scale, scale);
+    }
+  });
+}
+
+function fillPolygon(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, color: string): void {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Fondo en primera persona: pared, rival al fondo, mesa en perspectiva y brazos
+ * apoyados sobre el fieltro. Se dibuja una sola vez.
+ */
+export function makeGameTable(width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+
+  // Pared oscura con foco cálido sobre el rival.
+  ctx.fillStyle = '#171018';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#241922';
+  ctx.fillRect(0, 0, width, 60);
+  const glow = ctx.createRadialGradient(width / 2, 26, 6, width / 2, 26, 170);
+  glow.addColorStop(0, 'rgba(255, 196, 120, 0.20)');
+  glow.addColorStop(1, 'rgba(255, 196, 120, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, 80);
+  for (let x = 12; x < width; x += 24) {
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    ctx.fillRect(x, 0, 1, 58);
+  }
+
+  // El rival queda detrás del borde alto de la mesa.
+  drawRivalPortrait(ctx, Math.round((width - 72) / 2), 2, 3);
+
+  // Mesa en perspectiva: borde lejano corto, borde cercano ancho.
+  const topY = 56;
+  fillPolygon(ctx, [[150, topY], [330, topY], [width - 6, height], [6, height]], '#0b2a20');
+  fillPolygon(ctx, [[158, topY + 4], [322, topY + 4], [width - 26, height - 8], [26, height - 8]], COLORS.feltDark);
+  fillPolygon(ctx, [[164, topY + 8], [316, topY + 8], [width - 40, height - 14], [40, height - 14]], COLORS.felt);
+
+  // Costuras siguiendo la perspectiva.
+  ctx.fillStyle = '#5bbf91';
+  for (let i = 0; i <= 22; i++) {
+    const t = i / 22;
+    const leftX = Math.round(164 + (40 - 164) * t);
+    const rightX = Math.round(316 + (width - 40 - 316) * t);
+    const y = Math.round(topY + 8 + (height - 14 - topY - 8) * t);
+    ctx.fillRect(leftX + 2, y, 4, 1);
+    ctx.fillRect(rightX - 6, y, 4, 1);
+  }
+
+  // Escudo tenue en el centro del fieltro.
+  ctx.globalAlpha = 0.07;
+  drawSuit(ctx, 'espada', width / 2 - 21, 138, 7);
+  drawSuit(ctx, 'copa', width / 2 - 21, 170, 7);
+  ctx.globalAlpha = 1;
+
+  // Brazos del rival apoyados sobre la mesa.
+  fillPolygon(ctx, [[204, 46], [180, 54], [126, 94], [142, 102], [210, 62]], '#b23a3f');
+  fillPolygon(ctx, [[276, 46], [300, 54], [354, 94], [338, 102], [270, 62]], '#b23a3f');
+  ctx.fillStyle = '#d9a066';
+  ctx.fillRect(126, 90, 16, 8);
+  ctx.fillRect(338, 90, 16, 8);
+
+  // Borde de madera del lado del jugador.
+  ctx.fillStyle = COLORS.woodDark;
+  ctx.fillRect(0, height - 8, width, 8);
+  ctx.fillStyle = COLORS.woodLight;
+  ctx.fillRect(0, height - 8, width, 2);
+  for (let x = 10; x < width - 10; x += 18) {
+    ctx.fillStyle = '#241609';
+    ctx.fillRect(x, height - 5, 8, 1);
+  }
+
+  // Viñeta suave en las esquinas.
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = `rgba(6, 4, 10, ${0.03 + i * 0.012})`;
+    ctx.fillRect(i * 3, topY + i * 3, width - i * 6, 1);
+    ctx.fillRect(i * 3, height - 12 - i * 3, width - i * 6, 1);
+  }
+  return canvas;
+}
+
+/** Mesa de fieltro dibujada una sola vez en un canvas offscreen (menús). */
 export function makeTable(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;

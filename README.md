@@ -1,7 +1,7 @@
 # Falta envido y Trucooo
 
 Juego de **truco argentino** en 2D pixel art, 100% en TypeScript y Canvas, sin motores de juego.
-Incluye partida contra IA y modo multijugador online con salas.
+Incluye **modo historia** de un jugador, partida rápida contra IA y modo multijugador online con salas.
 
 **Jugá online:** https://truco-pixel.onrender.com
 
@@ -15,7 +15,8 @@ Incluye partida contra IA y modo multijugador online con salas.
 - [x] Tooltip con puesto en la jerarquía, envidio y comparación contra la carta del rival
 - [x] Botones con los puntos exactos de cada canto y explicación al pasar el mouse
 - [x] Ayuda por páginas (`H` + flechas) y tracker de rondas en pantalla
-- [x] Modo 1 jugador vs IA
+- [x] Modo historia: 5 capítulos, rivales con personalidad, diálogos y progreso guardado
+- [x] Modo 1 jugador vs IA (partida rápida con dificultad elegible)
 - [x] Envido → real envido → falta envido e "irse al mazo"
 - [x] El envidio del rival permanece oculto
 - [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `R`, `F`, `T`, `S`, `N`, `M`, `Enter`)
@@ -67,7 +68,8 @@ npm run typecheck
 
 ## Cómo jugar
 
-- Elegí **1 jugador** (contra IA) o **Multijugador**.
+- Elegí **Modo historia** (campaña de 5 rivales), **1 jugador** (partida rápida contra IA) o **Multijugador**.
+- En el modo historia, ganás para desbloquear el capítulo siguiente. El progreso queda guardado en el navegador.
 - En online, creá una sala y compartí el código de 4 letras, o unite con el código de otro jugador.
 - Pasá el mouse sobre una carta para ver su nombre; hacé clic para jugarla.
 - Los botones de acción aparecen cuando es tu turno o cuando tenés que responder un canto.
@@ -106,7 +108,7 @@ Basadas en el reglamento del truco argentino, sin flor ni contraflor.
 ## Estructura
 
 ```
-src/core/     reglas, baraja, envido, IA (sin DOM)
+src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
 tests/        tests del motor con Vitest

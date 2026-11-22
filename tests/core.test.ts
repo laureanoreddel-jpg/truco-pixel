@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chooseAiAction } from '../src/core/ai';
 import { createDeck } from '../src/core/deck';
 import { TrucoGame } from '../src/core/game';
-import { cardStrength, envidoScore } from '../src/core/hand';
+import { cardStrength, envidoScore, strengthTier } from '../src/core/hand';
 import type { Card, Rank, Suit } from '../src/core/types';
 
 const card = (rank: Rank, suit: Suit): Card => ({ id: `${rank}-${suit}`, rank, suit });
@@ -43,6 +43,12 @@ describe('baraja y jerarquía', () => {
   it('empata cartas del mismo número y figuras', () => {
     expect(cardStrength(card(6, 'oro'))).toBe(cardStrength(card(6, 'copa')));
     expect(cardStrength(card(12, 'oro'))).toBe(cardStrength(card(12, 'copa')));
+  });
+
+  it('expone el puesto de cada carta para la interfaz', () => {
+    expect(strengthTier(card(1, 'espada'))).toBe(1);
+    expect(strengthTier(card(3, 'copa'))).toBe(5);
+    expect(strengthTier(card(4, 'oro'))).toBe(14);
   });
 });
 

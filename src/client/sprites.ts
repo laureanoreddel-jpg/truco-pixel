@@ -1,28 +1,28 @@
 import type { Card, Suit } from '../core/types';
 
 export const COLORS = {
-  wood: '#3b2618',
-  woodLight: '#7a4f2c',
-  woodDark: '#1e130d',
-  felt: '#1c6b50',
-  feltDark: '#104333',
-  feltLight: '#2f8e69',
-  cream: '#fff4d6',
-  paper: '#fffdf4',
-  ink: '#171220',
-  red: '#e8504f',
-  redDark: '#8f2a32',
-  gold: '#ffd166',
-  goldDark: '#a9782b',
-  blue: '#4ea8de',
-  green: '#5fd39b',
-  gray: '#a6a0b0',
+  wood: '#241712',
+  woodLight: '#5a3520',
+  woodDark: '#080607',
+  felt: '#123d32',
+  feltDark: '#0a251f',
+  feltLight: '#1d5a45',
+  cream: '#fff7e6',
+  paper: '#fffaf0',
+  ink: '#100c12',
+  red: '#ff3b30',
+  redDark: '#a01820',
+  gold: '#ffc93c',
+  goldDark: '#a35f18',
+  blue: '#3d8bd8',
+  green: '#28c76f',
+  gray: '#9c94a0',
   white: '#ffffff',
-  shadow: '#0a0710',
-  panel: '#2a2038',
-  panelLight: '#453354',
-  pink: '#f497b8',
-  navy: '#1b2a44',
+  shadow: '#000000',
+  panel: '#160f14',
+  panelLight: '#2b1d24',
+  pink: '#ff7aa8',
+  navy: '#101a2e',
 };
 
 /** Aclara (amount > 0) u oscurece (amount < 0) un color hexadecimal. */
@@ -270,11 +270,22 @@ export function drawButton(
 ): void {
   const disabled = style.disabled ?? false;
   const hover = style.hover ?? false;
-  const color = disabled ? '#3a3543' : style.color ?? COLORS.panelLight;
-  drawPanel(ctx, x, y, w, h, color, hover ? COLORS.gold : COLORS.shadow);
+  const color = disabled ? '#2a2630' : style.color ?? COLORS.panelLight;
+  const border = hover ? COLORS.cream : COLORS.shadow;
+  // Botón arcade: sombra dura, borde negro de 2 px, brillo arriba y bisel abajo.
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(x + 3, y + 4, w, h);
+  ctx.fillStyle = border;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+  ctx.fillStyle = 'rgba(255,255,255,0.38)';
+  ctx.fillRect(x + 2, y + 2, w - 4, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.fillRect(x + 2, y + h - 5, w - 4, 3);
   if (hover && !disabled) {
-    ctx.fillStyle = 'rgba(255,209,102,0.12)';
-    ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(x + 4, y + 5, w - 8, h - 10);
   }
   drawTextCenteredShadow(
     ctx,
@@ -677,10 +688,10 @@ export function makeGameTable(width: number, height: number, shirtColor = BUST_C
   const ctx = canvas.getContext('2d')!;
 
   // Pared con paneles y foco sobre el rival.
-  ctx.fillStyle = '#1a1119';
+  ctx.fillStyle = '#050405';
   ctx.fillRect(0, 0, width, height);
   for (let x = 0; x < width; x += 32) {
-    ctx.fillStyle = '#211620';
+    ctx.fillStyle = '#100b0d';
     ctx.fillRect(x + 1, 0, 30, 62);
     ctx.fillStyle = 'rgba(255, 209, 102, 0.05)';
     ctx.fillRect(x, 0, 1, 62);
@@ -707,18 +718,18 @@ export function makeGameTable(width: number, height: number, shirtColor = BUST_C
   };
 
   // Estructura de la mesa: borde, madera, fieltro.
-  fillPolygon(ctx, [[146, topY - 2], [334, topY - 2], [width - 2, height], [2, height]], '#120c0a');
-  fillPolygon(ctx, [[150, topY], [330, topY], [width - 8, height - 4], [8, height - 4]], '#4a2c19');
-  fillPolygon(ctx, [[154, topY + 3], [326, topY + 3], [width - 18, height - 10], [18, height - 10]], '#6b4227');
-  fillPolygon(ctx, [[158, topY + 5], [322, topY + 5], [width - 32, height - 13], [32, height - 13]], '#08251b');
+  fillPolygon(ctx, [[146, topY - 2], [334, topY - 2], [width - 2, height], [2, height]], '#000000');
+  fillPolygon(ctx, [[150, topY], [330, topY], [width - 8, height - 4], [8, height - 4]], '#3a1e12');
+  fillPolygon(ctx, [[154, topY + 3], [326, topY + 3], [width - 18, height - 10], [18, height - 10]], '#5a3520');
+  fillPolygon(ctx, [[158, topY + 5], [322, topY + 5], [width - 32, height - 13], [32, height - 13]], '#0a251f');
 
   ctx.save();
   feltPath();
   ctx.clip();
   const felt = ctx.createLinearGradient(0, topY, 0, height);
-  felt.addColorStop(0, '#155741');
-  felt.addColorStop(0.45, '#1f7557');
-  felt.addColorStop(1, '#0f4936');
+  felt.addColorStop(0, '#0f4234');
+  felt.addColorStop(0.45, '#185c45');
+  felt.addColorStop(1, '#082a20');
   ctx.fillStyle = felt;
   ctx.fillRect(0, topY, width, height - topY);
   const sheen = ctx.createRadialGradient(width / 2, 150, 8, width / 2, 150, 210);

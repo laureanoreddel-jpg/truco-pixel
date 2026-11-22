@@ -4,13 +4,16 @@ import { other, type GameAction, type PlayerIndex } from './types';
 
 export type Difficulty = 'facil' | 'medio' | 'dificil';
 
-const THRESHOLD: Record<Difficulty, number> = { facil: -18, medio: 0, dificil: 12 };
-const RAISE: Record<Difficulty, number> = { facil: 196, medio: 188, dificil: 182 };
+/** Umbrales calibrados para la jerarquía real (1 espada = 190, 4 = 90). */
+const ADJUST: Record<Difficulty, number> = { facil: -35, medio: 0, dificil: 25 };
+const RAISE_AT: Record<Difficulty, number> = { facil: 360, medio: 340, dificil: 325 };
+const FOLD_BELOW: Record<Difficulty, number> = { facil: 110, medio: 150, dificil: 185 };
+const TRUCO_AT: Record<Difficulty, number> = { facil: 350, medio: 330, dificil: 310 };
 
-/** Heurística simple: decide apuestas con umbrales y juega la carta más barata que gana. */
+/** Heurística: decide apuestas con umbrales y juega la carta más barata que gana. */
 export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty: Difficulty): GameAction {
   const s = game.state;
-  const adjust = THRESHOLD[difficulty];
+  const adjust = ADJUST[difficulty];
   const rng = Math.random;
   const behind = s.scores[player] < s.scores[other(player)];
 
@@ -20,17 +23,17 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
     if (s.pending.kind === 'truco') {
       const strength = game.handStrength(player);
       const level = s.pending.level;
-      if (strength >= RAISE[difficulty] && level < 3 && s.trucoLevel < 3) return { type: 'raiseTruco' };
-      const needed = (level === 1 ? 142 : 168) + adjust;
+      if (strength >= RAISE_AT[difficulty] && level < 3) return { type: 'raiseTruco' };
+      const needed = (level === 1 ? 270 : 320) + adjust;
       if (strength >= needed) return { type: 'acceptTruco' };
       if (difficulty === 'facil' && rng() < 0.2) return { type: 'acceptTruco' };
       return { type: 'declineTruco' };
     }
 
     const envido = game.envidoFor(player);
-    const canRaise = s.pending.level < 3 && s.envidoPot < 12;
+    const canRaise = s.pending.level < 3;
     if (canRaise && envido >= 33 && rng() < (difficulty === 'facil' ? 0.25 : 0.6)) {
-      if (behind && s.scores[player] !== s.scores[other(player)]) return { type: 'callFalta' };
+      if (behind) return { type: 'callFalta' };
       return { type: 'callRealEnvido' };
     }
     const needed = s.pending.level === 3 ? 33 : s.pending.level === 1 ? 31 + adjust : 33 + Math.min(0, adjust);
@@ -59,14 +62,14 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
   }
 
   const strength = game.handStrength(player);
-  if (strength < 70 + adjust && rng() < (difficulty === 'facil' ? 0.15 : 0.35)) {
+  if (strength < FOLD_BELOW[difficulty] && rng() < (difficulty === 'facil' ? 0.15 : 0.35)) {
     return { type: 'fold' };
   }
-  if (strength >= 176 + adjust || (difficulty !== 'facil' && rng() < 0.08)) {
+  if (strength >= TRUCO_AT[difficulty] || (difficulty !== 'facil' && rng() < 0.08)) {
     if (s.trucoLevel === 0) return { type: 'callTruco' };
-    if (s.trucoLevel < 3 && strength >= 182 + adjust) return { type: 'raiseTruco' };
+    if (s.trucoLevel < 3 && strength >= 345 + adjust) return { type: 'raiseTruco' };
   }
-  if (s.trucoLevel === 1 && strength >= 192) return { type: 'raiseTruco' };
+  if (s.trucoLevel === 1 && strength >= 355) return { type: 'raiseTruco' };
 
   const hand = sortHand(s.hands[player]);
   const rivalCard = game.currentOpponentCard(player);
@@ -80,7 +83,7 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
   }
 
   if (s.round === 2) return { type: 'playCard', cardId: hand[0].id };
-  // De mentor: guarda la carta fuerte para la última ronda.
-  const index = hand.length > 1 && strength >= 165 ? 1 : hand.length - 1;
+  // Guarda la carta fuerte para la última ronda.
+  const index = hand.length > 1 && strength >= 300 ? 1 : hand.length - 1;
   return { type: 'playCard', cardId: hand[Math.min(index, hand.length - 1)].id };
 }

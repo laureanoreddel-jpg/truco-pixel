@@ -708,7 +708,7 @@ window.addEventListener('keydown', (event) => {
 
   const shortcuts: Record<string, GameAction['type'][]> = {
     q: ['acceptEnvido', 'acceptTruco'],
-    e: ['acceptEnvido', 'callEnvido'],
+    e: ['callEnvido', 'callEnvidoEnvido'],
     r: ['callRealEnvido'],
     d: ['callEnvidoEnvido'],
     f: ['callFalta'],

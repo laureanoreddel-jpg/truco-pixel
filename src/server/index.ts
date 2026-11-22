@@ -298,7 +298,9 @@ export function contentTypeFor(file: string): string {
 /** Assets con hash se pueden cachear para siempre; el resto (y el HTML) no. */
 export function cacheControlFor(file: string): string {
   const base = path.basename(file);
-  if (path.extname(base).toLowerCase() === '.html') return 'no-cache';
+  if (path.extname(base).toLowerCase() === '.html' || base === 'manifest.webmanifest') {
+    return 'no-cache';
+  }
   const hashed = /(?:^|[-.])[a-z0-9]{8,}\.[^.]+$/i.test(base);
   return hashed ? 'public, max-age=31536000, immutable' : 'no-cache';
 }

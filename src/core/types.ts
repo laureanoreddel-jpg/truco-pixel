@@ -14,7 +14,8 @@ export type Phase = 'playing' | 'handEnd' | 'gameEnd';
 
 export type TrucoLevel = 1 | 2 | 3;
 
-export type EnvidoLevel = 1 | 2 | 3;
+/** 1 envido (2), 2 real (3), 3 envido envido (4), 4 falta (variable). */
+export type EnvidoLevel = 1 | 2 | 3 | 4;
 
 export type EnvidoStatus = 'open' | 'called' | 'accepted' | 'declined' | 'closed';
 
@@ -44,6 +45,7 @@ export type GameAction =
   | { type: 'declineTruco' }
   | { type: 'callEnvido' }
   | { type: 'callRealEnvido' }
+  | { type: 'callEnvidoEnvido' }
   | { type: 'callFalta' }
   | { type: 'fold' }
   | { type: 'acceptEnvido' }
@@ -74,6 +76,8 @@ export interface GameState {
   /** Resultado estructurado de la última mano cerrada, para la interfaz. */
   lastHand: HandResult | null;
   pending: PendingChallenge | null;
+  /** Truco cantado antes que el envido: se resuelve primero el envido y después vuelve. */
+  deferredTruco: PendingChallenge | null;
   winner: PlayerIndex | null;
   log: string[];
   lastEvent: string;

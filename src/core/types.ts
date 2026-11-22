@@ -30,6 +30,12 @@ export interface EnvidoResult {
   prize: number;
 }
 
+export interface HandResult {
+  winner: PlayerIndex;
+  points: number;
+  reason: string;
+}
+
 export type GameAction =
   | { type: 'playCard'; cardId: string }
   | { type: 'callTruco' }
@@ -52,6 +58,8 @@ export interface GameState {
   /** [ronda][jugador], null mientras ese jugador no tiró su carta en la ronda. */
   played: [[Card | null, Card | null], [Card | null, Card | null], [Card | null, Card | null]];
   roundWins: [number, number];
+  /** Puntos de ronda (una ronda vale 2 cuando hubo empate antes). */
+  roundPoints: [number, number];
   round: number;
   turn: PlayerIndex;
   /** Jugador que arranca la mano (equivalente al "mano" en truco). */
@@ -63,6 +71,8 @@ export interface GameState {
   envidoLevel: 0 | EnvidoLevel;
   envidoCaller: PlayerIndex | null;
   envidoResult: EnvidoResult | null;
+  /** Resultado estructurado de la última mano cerrada, para la interfaz. */
+  lastHand: HandResult | null;
   pending: PendingChallenge | null;
   winner: PlayerIndex | null;
   log: string[];

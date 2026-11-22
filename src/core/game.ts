@@ -144,13 +144,12 @@ export class TrucoGame {
     );
   }
 
-  /** El mismo límite vale para subir una cadena ya abierta. */
-  private canRaiseEnvido(player: PlayerIndex): boolean {
-    return (
-      this.state.envidoStatus === 'called' &&
-      !this.playedFirstCard(player) &&
-      !this.acceptedTruco(player)
-    );
+  /**
+   * Para responder un envido ajeno alcanza con no haber querido el truco:
+   * quien ya tiró su primera carta puede aceptar o subir la cadena.
+   */
+  private canRaiseEnvido(_player: PlayerIndex): boolean {
+    return this.state.envidoStatus === 'called' && !this.acceptedTruco(_player);
   }
 
   private envidoActions(player: PlayerIndex, bids: EnvidoBid[]): GameAction[] {
@@ -189,7 +188,7 @@ export class TrucoGame {
     s.envidoCaller = player;
 
     const name = ENVIDO_CALL_NAMES[call];
-    s.lastEvent = `${PLAYER_NAMES[player]} dice ${name} (+${value}, tantos en juego ${potAfter})`;
+    s.lastEvent = `${PLAYER_NAMES[player]}: ${name} (+${value}, tantos en juego ${potAfter})`;
     this.log(s.lastEvent);
     return true;
   }
@@ -255,7 +254,7 @@ export class TrucoGame {
       }
       case 'callTruco':
         s.pending = { kind: 'truco', by: player, level: 1 };
-        s.lastEvent = `${PLAYER_NAMES[player]} dice TRUCO`;
+        s.lastEvent = `${PLAYER_NAMES[player]}: TRUCO`;
         this.log(s.lastEvent);
         return true;
       case 'raiseTruco': {
@@ -264,7 +263,7 @@ export class TrucoGame {
         const level = (previous + 1) as TrucoLevel;
         s.pending = { kind: 'truco', by: player, level };
         s.lastEvent = level === 2 ? 'RETRUCO' : 'VALE CUATRO';
-        this.log(`${PLAYER_NAMES[player]} dice ${s.lastEvent}`);
+        this.log(`${PLAYER_NAMES[player]}: ${s.lastEvent}`);
         return true;
       }
       case 'acceptTruco': {
@@ -281,7 +280,7 @@ export class TrucoGame {
         if (s.pending?.kind !== 'truco') return false;
         const { by: caller, level } = s.pending;
         s.pending = null;
-        s.lastEvent = `${PLAYER_NAMES[other(caller)]} no acepta: ${PLAYER_NAMES[caller]} gana ${level}`;
+        s.lastEvent = `Puntos para ${PLAYER_NAMES[caller]}: ${level}`;
         this.finishHand(caller, level, 'truco rechazado');
         return true;
       }
@@ -311,7 +310,7 @@ export class TrucoGame {
         const detail = scores[winner].pair
           ? ` (${scores[winner].pair.map(cardLabel).join(' y ')})`
           : '';
-        s.lastEvent = `Envidio ${points[winner]}${detail}: ${PLAYER_NAMES[winner]} gana ${pending.potAfter}`;
+        s.lastEvent = `Envido ${points[winner]}${detail} · ${PLAYER_NAMES[winner]}: +${pending.potAfter}`;
         this.log(s.lastEvent);
         this.restoreDeferredTruco();
         return true;
@@ -321,7 +320,7 @@ export class TrucoGame {
         const { by: caller, decline } = s.pending;
         s.pending = null;
         s.envidoStatus = 'declined';
-        s.lastEvent = `${PLAYER_NAMES[other(caller)]} no acepta: ${PLAYER_NAMES[caller]} gana ${decline}`;
+        s.lastEvent = `Puntos para ${PLAYER_NAMES[caller]}: ${decline}`;
         this.log(s.lastEvent);
         this.award(caller, decline);
         this.checkGameEnd();
@@ -332,7 +331,7 @@ export class TrucoGame {
         const winner = other(player);
         // Antes de cerrar el turno del envido, abandonar cuesta envido + truco.
         const mazoPoints = trucoPoints(s.trucoLevel) + (this.canOpenEnvido(player) ? 1 : 0);
-        s.lastEvent = `${PLAYER_NAMES[player]} se fue al mazo`;
+        s.lastEvent = `Mazo: ${PLAYER_NAMES[player]}`;
         this.log(s.lastEvent);
         this.finishHand(winner, mazoPoints, 'mazo');
         return true;
@@ -361,7 +360,7 @@ export class TrucoGame {
     } else {
       s.roundWins[winner] += 1;
       s.roundPoints[winner] += 1;
-      s.lastEvent = `Ronda ${s.round + 1}: gana ${PLAYER_NAMES[winner]}`;
+      s.lastEvent = `Ronda ${s.round + 1} · ${PLAYER_NAMES[winner]}`;
     }
     this.log(s.lastEvent);
     s.turn = winner ?? s.mano;
@@ -429,8 +428,8 @@ export class TrucoGame {
     if (s.phase !== 'gameEnd') s.phase = 'handEnd';
 
     const parts: string[] = [];
-    if (envido) parts.push(`envido ${PLAYER_NAMES[envido.winner]} +${envido.prize}`);
-    parts.push(`${reason} ${PLAYER_NAMES[handWinner]} +${handPoints}`);
+    if (envido) parts.push(`envido: ${PLAYER_NAMES[envido.winner]} +${envido.prize}`);
+    parts.push(`${reason}: ${PLAYER_NAMES[handWinner]} +${handPoints}`);
     s.lastEvent = parts.join(' · ');
     this.log(s.lastEvent);
   }

@@ -1,0 +1,47 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background:
+    radial-gradient(circle at 50% 40%, #221a2c 0%, #120e1a 55%, #08060d 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: monospace;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.018) 0px,
+    rgba(255, 255, 255, 0.018) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+#game {
+  width: min(calc(100vw - 24px), calc((100vh - 24px) * 16 / 9));
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 2px solid #6b4426;
+  border-radius: 6px;
+  outline: 2px solid #0d0a12;
+  box-shadow:
+    0 0 0 4px #241c18,
+    0 0 0 6px rgba(255, 209, 102, 0.15),
+    0 18px 60px rgba(0, 0, 0, 0.85);
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+}

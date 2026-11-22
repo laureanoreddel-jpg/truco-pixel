@@ -176,8 +176,22 @@ export function drawSuit(ctx: CanvasRenderingContext2D, suit: Suit, x: number, y
   }
 }
 
-export const CARD_W = 30;
-export const CARD_H = 42;
+export const CARD_W = 44;
+export const CARD_H = 60;
+
+export const SUIT_NAMES: Record<Suit, string> = {
+  espada: 'ESPADA',
+  basto: 'BASTO',
+  oro: 'ORO',
+  copa: 'COPA',
+};
+
+/** Verde para las cartas fuertes, dorado para las medianas, rojo para las débiles. */
+export function tierColor(tier: number): string {
+  if (tier <= 4) return COLORS.green;
+  if (tier <= 8) return COLORS.gold;
+  return COLORS.red;
+}
 
 /** Rectángulo con esquinas recortadas, estilo pixel. */
 export function pixelRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
@@ -274,53 +288,74 @@ export function drawScoreBar(
   for (let i = 7; i < w; i += 8) ctx.fillRect(x + i, y, 1, 4);
 }
 
-export function drawCard(ctx: CanvasRenderingContext2D, card: Card, x: number, y: number, highlight = false, lift = 0): void {
+export function drawCard(
+  ctx: CanvasRenderingContext2D,
+  card: Card,
+  x: number,
+  y: number,
+  highlight = false,
+  lift = 0,
+  keyHint?: number,
+  strengthTier?: number,
+): void {
   const suitColor = SUIT_COLORS[card.suit];
   const top = y - lift;
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  pixelRect(ctx, x + 3, top + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.5)');
+  pixelRect(ctx, x + 3, top + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.55)');
   pixelRect(ctx, x, top, CARD_W, CARD_H, COLORS.shadow);
   pixelRect(ctx, x + 1, top + 1, CARD_W - 2, CARD_H - 2, highlight ? COLORS.white : COLORS.paper);
-  // Doble filete de color del palo.
   ctx.fillStyle = suitColor;
   ctx.fillRect(x + 3, top + 2, CARD_W - 6, 1);
   ctx.fillRect(x + 3, top + CARD_H - 3, CARD_W - 6, 1);
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillStyle = 'rgba(0,0,0,0.14)';
   ctx.fillRect(x + 2, top + 3, 1, CARD_H - 6);
   ctx.fillRect(x + CARD_W - 3, top + 3, 1, CARD_H - 6);
 
-  drawText(ctx, String(card.rank), x + 3, top + 4, suitColor, 2, 0);
-  drawSuit(ctx, card.suit, x + CARD_W - 10, top + 5, 1);
-  drawSuit(ctx, card.suit, x + (CARD_W - 12) / 2, top + 18, 2);
-  drawSuit(ctx, card.suit, x + 3, top + CARD_H - 9, 1);
-  drawText(ctx, String(card.rank), x + CARD_W - 11, top + CARD_H - 9, suitColor, 1, 0);
+  // Número grande: 1 dígito a escala 3 y los dobles a escala 2.
+  const rankText = String(card.rank);
+  drawText(ctx, rankText, x + 4, top + 5, suitColor, rankText.length > 1 ? 2 : 3, 0);
+  // Símbolo grande y nombre del palo: la carta se entiende sin tooltip.
+  drawSuit(ctx, card.suit, x + (CARD_W - 18) / 2, top + 22, 3);
+  drawText(ctx, SUIT_NAMES[card.suit], x + 3, top + 46, suitColor, 1, 0);
+
+  // Barra de fuerza: cuantos más segmentos, más fuerte es la carta.
+  const tier = strengthTier ?? 14;
+  const segments = Math.max(1, Math.round((14 - tier) / 13 * 10));
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(x + 4, top + 55, CARD_W - 8, 2);
+  ctx.fillStyle = tierColor(tier);
+  ctx.fillRect(x + 4, top + 55, segments * ((CARD_W - 8) / 10), 2);
+
+  if (keyHint !== undefined) {
+    drawPanel(ctx, x + CARD_W - 10, top + 2, 8, 10, COLORS.goldDark, COLORS.shadow);
+    drawText(ctx, String(keyHint + 1), x + CARD_W - 8, top + 3, COLORS.gold);
+  }
 
   if (highlight) {
     ctx.fillStyle = COLORS.gold;
     for (const [dx, dy] of [[1, 1], [CARD_W - 3, 1], [1, CARD_H - 3], [CARD_W - 3, CARD_H - 3]]) {
       ctx.fillRect(x + dx, top + dy, 2, 2);
     }
-    ctx.fillStyle = 'rgba(255,209,102,0.25)';
+    ctx.fillStyle = 'rgba(255,209,102,0.28)';
     ctx.fillRect(x + 2, top + 2, CARD_W - 4, 1);
   }
 }
 
 export function drawCardBack(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  pixelRect(ctx, x + 3, y + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.5)');
+  pixelRect(ctx, x + 3, y + 4, CARD_W, CARD_H, 'rgba(0,0,0,0.55)');
   pixelRect(ctx, x, y, CARD_W, CARD_H, COLORS.shadow);
   pixelRect(ctx, x + 1, y + 1, CARD_W - 2, CARD_H - 2, COLORS.redDark);
   pixelRect(ctx, x + 3, y + 3, CARD_W - 6, CARD_H - 6, COLORS.cream);
   ctx.fillStyle = COLORS.red;
-  for (let row = 0; row < 6; row++) {
-    for (let col = 0; col < 4; col++) {
+  for (let row = 0; row < 9; row++) {
+    for (let col = 0; col < 6; col++) {
       const size = (row + col) % 2 === 0 ? 3 : 2;
-      ctx.fillRect(x + 5 + col * 5, y + 6 + row * 5, size, size);
+      ctx.fillRect(x + 6 + col * 6, y + 6 + row * 5, size, size);
     }
   }
   ctx.fillStyle = COLORS.gold;
-  ctx.fillRect(x + 12, y + 18, 6, 3);
-  ctx.fillRect(x + 13, y + 17, 4, 1);
-  ctx.fillRect(x + 13, y + 21, 4, 1);
+  ctx.fillRect(x + 17, y + 25, 10, 4);
+  ctx.fillRect(x + 19, y + 23, 6, 1);
+  ctx.fillRect(x + 19, y + 29, 6, 1);
 }
 
 const RIVAL_SPRITE = [
@@ -429,10 +464,10 @@ export function makeTable(width: number, height: number): HTMLCanvasElement {
     ctx.fillRect(inset + i * 2, height - inset - i * 2 - 1, width - (inset + i * 2) * 2, 1);
   }
 
-  // Escudo central tenue con las cuatro palos.
-  ctx.globalAlpha = 0.09;
-  drawSuit(ctx, 'espada', width / 2 - 15, height / 2 - 21, 5);
-  drawSuit(ctx, 'copa', width / 2 - 15, height / 2 + 6, 5);
+  // Escudo central tenue con los cuatro palos.
+  ctx.globalAlpha = 0.08;
+  drawSuit(ctx, 'espada', width / 2 - 21, height / 2 - 26, 7);
+  drawSuit(ctx, 'copa', width / 2 - 21, height / 2 + 9, 7);
   ctx.globalAlpha = 1;
 
   // Tachuelas doradas en las esquinas.

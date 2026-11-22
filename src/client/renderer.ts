@@ -1038,7 +1038,8 @@ export class Renderer {
         : hoveredType ? defs[hoveredType]?.hint : undefined;
       if (hint) {
         const tw = 204;
-        const tx = Math.round((W - tw) / 2);
+        // A la izquierda: el centro tiene la carta jugada en y=104..158.
+        const tx = 8;
         drawSoftPanel(ctx, tx, 108, tw, 22, COLORS.paper, 'rgba(255, 201, 60, 0.8)', 5);
         drawText(ctx, clip(hint, 31), tx + 9, 114, COLORS.ink);
       }

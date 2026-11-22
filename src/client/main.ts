@@ -41,11 +41,11 @@ function setNotice(text: string): void {
 
 function render(): void {
   if (screen === 'menu') {
-    hits = renderer.drawMenu(difficulty);
+    hits = renderer.drawMenu(difficulty, hover);
   } else if (screen === 'online') {
-    hits = renderer.drawOnline(room);
+    hits = renderer.drawOnline(room, hover);
   } else if (screen === 'help') {
-    hits = renderer.drawHelp();
+    hits = renderer.drawHelp(hover);
   } else if (game) {
     hits = renderer.drawGame(game.getState(), { human, mode, legal, notice, hover });
   }
@@ -270,27 +270,72 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 
 canvas.addEventListener('pointermove', (event) => {
-  if (screen !== 'game') return;
   const rect = canvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-  const card = hits.find((hit) => hit.id.startsWith('card:') && x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h);
-  const next = card?.id.slice(5) ?? null;
+  const target = [...hits].reverse().find(
+    (hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h,
+  );
+  const next = target?.id ?? null;
   if (next !== hover) {
     hover = next;
     render();
   }
 });
 
+canvas.addEventListener('pointerleave', () => {
+  if (hover) {
+    hover = null;
+    render();
+  }
+});
+
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && screen !== 'menu') goMenu();
-  if (event.key === 'h' || event.key === 'H') {
+  const key = event.key.toLowerCase();
+  if (key === 'escape' && screen !== 'menu') {
+    goMenu();
+    return;
+  }
+  if (key === 'h') {
     if (screen === 'help') screen = helpReturn;
     else {
       helpReturn = screen;
       screen = 'help';
     }
     render();
+    return;
+  }
+  if (screen !== 'game' || !game) return;
+
+  const cardIndex = ['1', '2', '3'].indexOf(key);
+  if (cardIndex >= 0) {
+    const card = game.state.hands[human][cardIndex];
+    const action = card && legal.find((a) => a.type === 'playCard' && a.cardId === card.id);
+    if (action) {
+      if (mode === 'local') dispatchLocal(action);
+      else dispatchOnline(action);
+    }
+    return;
+  }
+
+  const shortcuts: Record<string, GameAction['type'][]> = {
+    e: ['acceptEnvido', 'callEnvido'],
+    r: ['callRealEnvido'],
+    f: ['callFalta'],
+    t: ['acceptTruco', 'callTruco'],
+    s: ['raiseTruco'],
+    n: ['declineTruco', 'declineEnvido'],
+    m: ['fold'],
+    enter: ['nextHand', 'restart'],
+    ' ': ['nextHand', 'restart'],
+  };
+  const types = shortcuts[key];
+  if (!types) return;
+  event.preventDefault();
+  const action = types.map((type) => legal.find((a) => a.type === type)).find(Boolean);
+  if (action) {
+    if (mode === 'local') dispatchLocal(action);
+    else dispatchOnline(action);
   }
 });
 

@@ -31,12 +31,14 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
     }
 
     const envido = game.envidoFor(player);
-    const canRaise = s.pending.level < 3;
-    if (canRaise && envido >= 33 && rng() < (difficulty === 'facil' ? 0.25 : 0.6)) {
-      if (behind) return { type: 'callFalta' };
-      return { type: 'callRealEnvido' };
+    const level = s.pending.level;
+    const legal = game.legalActions(player).map((action) => action.type);
+    if (envido >= 32 && rng() < (difficulty === 'facil' ? 0.25 : 0.6)) {
+      if (behind && legal.includes('callFalta')) return { type: 'callFalta' };
+      if (legal.includes('callEnvidoEnvido')) return { type: 'callEnvidoEnvido' };
+      if (legal.includes('callRealEnvido')) return { type: 'callRealEnvido' };
     }
-    const needed = s.pending.level === 3 ? 33 : s.pending.level === 1 ? 31 + adjust : 33 + Math.min(0, adjust);
+    const needed = level === 1 ? 31 + adjust : level === 2 ? 32 + adjust : 33;
     if (envido >= needed) return { type: 'acceptEnvido' };
     return { type: 'declineEnvido' };
   }
@@ -50,14 +52,17 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
   const canSingEnvido = played === 0 && s.envidoStatus !== 'declined' && s.envidoStatus !== 'accepted';
 
   if (canSingEnvido) {
-    if (behind && envido >= 32 && rng() < (difficulty === 'facil' ? 0.15 : 0.45)) {
+    const legal = game.legalActions(player).map((action) => action.type);
+    if (behind && envido >= 32 && legal.includes('callFalta') && rng() < (difficulty === 'facil' ? 0.15 : 0.45)) {
       return { type: 'callFalta' };
     }
     if (envido >= 33 || (difficulty === 'dificil' && envido >= 32 && rng() < 0.5)) {
-      return { type: 'callRealEnvido' };
+      if (legal.includes('callEnvidoEnvido')) return { type: 'callEnvidoEnvido' };
+      if (legal.includes('callRealEnvido')) return { type: 'callRealEnvido' };
     }
     if (envido >= 32 || (difficulty !== 'facil' && envido >= 31 && rng() < 0.35)) {
-      return { type: 'callEnvido' };
+      if (legal.includes('callRealEnvido') && rng() < 0.35) return { type: 'callRealEnvido' };
+      if (legal.includes('callEnvido')) return { type: 'callEnvido' };
     }
   }
 
@@ -67,9 +72,11 @@ export function chooseAiAction(game: TrucoGame, player: PlayerIndex, difficulty:
   }
   if (strength >= TRUCO_AT[difficulty] || (difficulty !== 'facil' && rng() < 0.08)) {
     if (s.trucoLevel === 0) return { type: 'callTruco' };
-    if (s.trucoLevel < 3 && strength >= 345 + adjust) return { type: 'raiseTruco' };
   }
-  if (s.trucoLevel === 1 && strength >= 355) return { type: 'raiseTruco' };
+  // Quien recibió el truco puede subir incluso después de haber dicho "quiero".
+  if (s.trucoLevel > 0 && s.trucoLevel < 3 && s.trucoCaller !== player && strength >= 345 + adjust) {
+    return { type: 'raiseTruco' };
+  }
 
   const hand = sortHand(s.hands[player]);
   const rivalCard = game.currentOpponentCard(player);

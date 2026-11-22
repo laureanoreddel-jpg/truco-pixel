@@ -12,7 +12,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] IA con tres niveles de dificultad y decisión por simulación ligera (perfiles de campaña con personalidad propia)
 - [x] Interfaz en primera persona 2D: mesa en perspectiva, rival sentado enfrente y cartas en profundidad
 - [x] Estética arcade de alto contraste: fondo casi negro, cartas crema y botones rojos/ámbar/verdes con borde negro y bisel
-- [x] Dock de acciones con submenú de ENVIDO: envido, envido envido, real envido, falta envido y respuestas con ayuda contextual
+- [x] Dock de acciones con submenú de ENVIDO: envido, envido envido, real envido y falta; `QUIERO` y `NO QUIERO` quedan siempre en el dock con la bolsa exacta
 - [x] Pantalla de juego minimalista: puntajes, rondas con color **y letra** (`G`/`P`/`=`), tooltips bajo demanda y sin paneles de texto
 - [x] Tooltip con puesto en la jerarquía, envido y comparación contra la carta del rival
 - [x] Botones agrupados en una barra, con los puntos exactos de cada canto y explicación al señalarlos
@@ -28,7 +28,7 @@ Incluye **modo historia** de un jugador, partida rápida contra IA y modo multij
 - [x] Anuncios para lectores de pantalla mediante una región `aria-live`
 - [x] Modo historia: 5 capítulos, rivales con personalidad, diálogos y progreso guardado
 - [x] Modo 1 jugador vs IA (partida rápida con dificultad elegible)
-- [x] Cadena completa de envido: envido → real → envido envido → falta, con prioridad sobre el truco e "irse al mazo"
+- [x] Cadena de envido según el reglamento: envido → envido envido → real envido → falta, con prioridad sobre el truco e "irse al mazo"
 - [x] El envido del rival permanece oculto hasta el cierre de la mano
 - [x] Atajos de teclado para cartas y cantos (`1/2/3`, `E`, `Q`, `R`, `D`, `F`, `T`, `S`, `N`, `M`, `Enter`)
 - [x] Multijugador online con salas de 6 letras, enlace de invitación `?sala=CODIGO`, campo de texto real en celular, aviso de rival desconectado, confirmación al salir, reconexión por pestaña y servidor autoritativo
@@ -94,7 +94,7 @@ npm run typecheck
 | Tecla | Acción |
 | --- | --- |
 | `1`, `2`, `3` | Jugar la carta 1, 2 o 3 |
-| `E` | Envido / aceptar envido |
+| `E` | Cantar envido / responder con el segundo envido |
 | `Q` | Quiero (aceptar envido o truco) |
 | `R` | Real envido |
 | `D` | Segundo envido (`envido envido`) |
@@ -110,17 +110,17 @@ npm run typecheck
 
 ## Reglas implementadas
 
-Basadas en el reglamento del truco argentino (ASART y reglamentos públicos de torneos), sin flor ni contraflor. Fuentes consultadas: [trucoargentino.com.ar](https://trucoargentino.com.ar/reglas), [truco.ar](https://truco.ar/reglas), [Truco Wiki](https://truco.wiki), [trucoreal.com](https://trucoreal.com/reglas) y [TrucoBits](https://trucobits.com/blog/reglas-del-truco-argentino).
+Basadas en el reglamento del truco argentino (ASART y reglamentos públicos de torneos), sin flor ni contraflor. Fuentes consultadas: [reglamento del Encuentro Nacional de Empleados de Rentas (ARCAT)](https://dgrentas.arcat.gob.ar/olimpiadas/reglamentos/truco.pdf), [Reglamento de Truco — Juegos de Salón](https://www.folkloretradiciones.com.ar/reglamento%20truco.pdf), [anota.com.ar](https://www.anota.com.ar/reglamentos/truco), [trucoargentino.com.ar](https://trucoargentino.com.ar/reglas), [truco.ar](https://truco.ar/reglas) y [TrucoBits](https://trucobits.com/blog/dudas-reglas-truco).
 
 - Mazo de 40 cartas (1–7, 10, 11, 12 en cuatro palos), 3 cartas por jugador.
 - **Jerarquía** (mayor a menor): 1 espada, 1 basto, 7 espada, 7 oro, 3, 2, 1 oro/copa, 12, 11, 10, 7 copa/basto, 6, 5, 4. Las cartas del mismo escalón empatan.
 - Gana quien toma **2 de 3 rondas**. **Pardas**: si se empata la primera, decide la segunda; si se empata la segunda, gana quien ganó la primera; si se empata la tercera, vuelve a quien ganó la primera; con tres pardas gana el **mano**. El valor de la mano no se duplica por una parda.
 - **Envido**: 20 + las dos cartas del mismo palo más altas; sin pareja, vale la carta mayor. Las figuras valen 0. El empate lo gana el mano.
-- Se puede cantar hasta que **quien canta tira su primera carta** (el pie puede cantar después de que tiró el mano) y nunca después de haber querido el truco.
-- Cadena: **envido +2 → segundo envido +2 (4 en total) → real envido +3 → falta**. «Envido envido» es un envido respondido con otro envido, no un canto inicial. Después del real o del segundo envido sólo se puede cantar falta; no se puede bajar ni repetir, y no se canta más después de querer.
+- **Iniciar** un envido se puede hasta que quien canta tira su primera carta (el pie puede cantar después de que tiró el mano) y nunca después de haber querido el truco. **Responder** un envido ajeno sí se puede aunque ya se haya tirado la primera carta: el reglamento dice que los rivales pueden contestar «aunque ya hayan jugado su primera carta».
+- Cadena: **envido +2 → envido envido +2 (4 en total) → real envido +3 (7) → falta**. «Envido envido» es la respuesta «envido» a un envido: **un solo canto**, no una opción adicional. Después del real sólo se puede cantar falta; después de envido envido se puede seguir con real o falta. No se puede bajar ni repetir, y no se canta más después de querer.
 - Cada palabra «envido» suma 2 a los **tantos en juego**; el real suma 3. Se pagan al cerrar la mano y no cortan el juego.
 - **Falta envido**: reemplaza todos los tantos en juego y vale lo que le falta **a quien va ganando** para llegar a 15. Con empate, valen 15 para ambos.
-- Rechazar un canto da el valor de la cadena **sin el último canto** (o **1** si era el primero). Ejemplos: real directo rechazado = 1; envido + envido rechazado = 2. No cierra la mano.
+- Rechazar un canto da el valor de la cadena **sin el último canto** (o **1** si era el primero). Ejemplos: real directo rechazado = 1; envido + envido rechazado = 2; envido + real rechazado = 2; envido + envido + real rechazado = 4. No cierra la mano.
 - Quien gana el envido canta sus tantos y muestra sus cartas al final de la mano; antes de eso el rival no ve ni el resultado ni las cartas.
 - Si te cantan truco antes de tirar la primera carta, podés responder **envido va primero**: se resuelve el envido y después vuelve el truco pendiente.
 - **Truco → retruco → vale cuatro**: la mano vale **2 / 3 / 4** puntos. Rechazar da **1 / 2 / 3** a quien cantó y cierra la mano. Quien recibió el canto puede subir incluso después de aceptar.
@@ -135,7 +135,7 @@ No se implementan la **flor**, la **contraflor** ni el **vale juego**, que son v
 src/core/     reglas, baraja, envido, IA, campaña (sin DOM)
 src/client/   renderer pixel art, sprites procedurales, input, audio, red
 src/server/   HTTP estático + WebSocket con salas autoritativas
-tests/        tests del motor, la IA y el servidor con Vitest (71 pruebas)
+tests/        tests del motor, la IA y el servidor con Vitest (73 pruebas)
 ```
 
 El servidor es autoritativo en online: el cliente envía solo acciones y recibe una **vista privada** del estado (sin la mano del rival ni el envido sin resolver).

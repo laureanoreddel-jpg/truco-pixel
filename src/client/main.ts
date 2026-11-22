@@ -116,6 +116,7 @@ let lastAnnouncement = '';
 
 function setNotice(text: string): void {
   notice = text;
+  announce(text);
   if (noticeTimer) window.clearTimeout(noticeTimer);
   noticeTimer = window.setTimeout(() => {
     notice = '';
@@ -451,8 +452,12 @@ function handleNetMessage(message: ServerMessage): void {
     case 'error':
       room.status = message.message;
       if (message.message.startsWith('Sesión vencida')) {
+        // Sin este reinicio el WebSocket queda abierto sin welcome y la
+        // reconexión automática se detiene en silencio.
         sessionRemove('truco-token');
         room.token = '';
+        startOnline();
+        room.status = 'Sesión vencida: creá o elegí una sala';
       }
       setNotice(message.message);
       render();
@@ -602,32 +607,40 @@ function handleHit(id: string): void {
   }
 }
 
+/** Con el submenú abierto sólo responden sus filas, el dock y la X de cierre. */
+function hitTargets(): HitBox[] {
+  return envidoOpen
+    ? hits.filter((hit) => hit.id.startsWith('ui:envido') || hit.id.startsWith('action:'))
+    : hits;
+}
+
 canvas.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-  for (let i = hits.length - 1; i >= 0; i--) {
-    const hit = hits[i];
-    if (x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h) {
-      handleHit(hit.id);
-      return;
+  const target = [...hitTargets()].reverse().find(
+    (hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h,
+  );
+  if (!target) {
+    if (envidoOpen) {
+      envidoOpen = false;
+      render();
     }
+    return;
   }
+  handleHit(target.id);
 });
 
 canvas.addEventListener('pointermove', (event) => {
   const rect = canvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-  const target = [...hits].reverse().find(
+  const target = [...hitTargets()].reverse().find(
     (hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h,
   );
   const next = target?.id ?? null;
-  if (next !== hover) {
-    hover = next;
-    render();
-  }
+  if (next !== hover) hover = next;
 });
 
 canvas.addEventListener('pointerleave', () => {
@@ -729,15 +742,20 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-function loop(): void {
-  render();
+/** 30 FPS es suficiente para el pulso y el brillo, y reduce el costo en móviles. */
+let lastPaint = 0;
+function loop(now: number): void {
+  if (now - lastPaint >= 1000 / 30) {
+    lastPaint = now;
+    render();
+  }
   requestAnimationFrame(loop);
 }
 
 /** En pantallas grandes se escala por enteros; en celular se aprovecha todo el ancho. */
 function applyCanvasScale(): void {
-  const availableWidth = Math.max(280, window.innerWidth - 16);
-  const availableHeight = Math.max(180, window.innerHeight - 16);
+  const availableWidth = Math.max(280, window.innerWidth - 32);
+  const availableHeight = Math.max(180, window.innerHeight - 32);
   const exact = Math.min(availableWidth / canvas.width, availableHeight / canvas.height);
   const scale = exact >= 1.5 ? Math.max(1, Math.floor(exact)) : exact;
   const width = Math.min(availableWidth, scale * canvas.width);

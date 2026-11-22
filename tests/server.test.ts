@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { once } from 'node:events';
+import { WebSocket } from 'ws';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TrucoGame } from '../src/core/game';
 import {
+  availableSeatForJoin,
   cacheControlFor,
   clientStateFor,
   contentTypeFor,
@@ -14,9 +17,10 @@ import {
   pruneRooms,
   RateLimiter,
   resolveStaticPath,
+  startServer,
   validateClientMessage,
 } from '../src/server/index';
-import type { Room, TokenBinding } from '../src/server/index';
+import type { Room, ServerMessage, ServerHandle, TokenBinding } from '../src/server/index';
 
 type Socket = Room['seats'][number]['socket'];
 const fakeSocket = (): Socket => ({}) as Socket;
@@ -237,10 +241,19 @@ describe('vista privada del estado online', () => {
     game.dispatch(1, { type: 'acceptEnvido' });
     game.dispatch(0, { type: 'playCard', cardId: card(1, 'espada').id });
     game.dispatch(1, { type: 'playCard', cardId: card(7, 'espada').id });
-    const playing = clientStateFor(game.getState(), 1);
-    expect(playing.envidoResult).toBeNull();
-    expect(playing.lastEvent).not.toContain('33');
-    expect(playing.log.join(' ')).toContain('Vos');
+    const concealed = game.state.envidoResult?.cards ?? [];
+    expect(concealed.length).toBeGreaterThan(0);
+    for (const viewer of [0, 1] as const) {
+      const playing = clientStateFor(game.getState(), viewer);
+      expect(playing.envidoResult).toBeNull();
+      expect(playing.lastEvent).not.toContain('33');
+      const json = JSON.stringify(playing);
+      const ownIds = new Set(game.state.hands[viewer].map((card) => card.id));
+      for (const card of concealed) {
+        if (!ownIds.has(card.id)) expect(json).not.toContain(card.id);
+      }
+      expect(playing.log.join(' ')).toContain(viewer === 0 ? 'Vos' : 'Rival');
+    }
 
     const closed = game.getState();
     closed.phase = 'handEnd';
@@ -280,6 +293,172 @@ describe('arranque del módulo', () => {
       expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Servidor iniciado'));
     } finally {
       log.mockRestore();
+    }
+  });
+});
+
+describe('asientos disponibles', () => {
+  it('respeta la gracia de reconexión y ofrece el lugar vencido', () => {
+    const now = 20_000;
+    const room = createRoom('UVWX', { now });
+    room.seats[1].socket = fakeSocket();
+    room.seats[0].token = VALID_UUID;
+    room.seats[0].tokenExpiresAt = now + 60_000;
+    expect(availableSeatForJoin(room, now)).toBeNull();
+
+    room.seats[0].tokenExpiresAt = now - 1;
+    expect(availableSeatForJoin(room, now)).toBe(0);
+
+    room.seats[0].token = '';
+    expect(availableSeatForJoin(room, now)).toBe(0);
+  });
+});
+
+describe('partidas online (WebSocket)', () => {
+  type Waiter = {
+    predicate: (message: ServerMessage) => boolean;
+    resolve: (message: ServerMessage) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  type TestClient = {
+    ws: WebSocket;
+    messages: ServerMessage[];
+    send: (message: unknown) => void;
+    wait: (predicate: (message: ServerMessage) => boolean, timeoutMs?: number) => Promise<ServerMessage>;
+    close: () => Promise<void>;
+  };
+
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  beforeAll(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterAll(() => logSpy.mockRestore());
+
+  async function serve(): Promise<{ handle: ServerHandle; port: number }> {
+    const handle = startServer({ port: 0, host: '127.0.0.1' });
+    if (!handle.server.listening) await once(handle.server, 'listening');
+    return { handle, port: (handle.server.address() as { port: number }).port };
+  }
+
+  function open(port: number, token?: string): Promise<TestClient> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws${token ? `?token=${token}` : ''}`);
+    const messages: ServerMessage[] = [];
+    const waiters = new Set<Waiter>();
+    ws.on('message', (data) => {
+      let message: ServerMessage;
+      try {
+        message = JSON.parse(String(data)) as ServerMessage;
+      } catch {
+        return;
+      }
+      messages.push(message);
+      for (const waiter of [...waiters]) {
+        if (!waiter.predicate(message)) continue;
+        waiters.delete(waiter);
+        clearTimeout(waiter.timer);
+        waiter.resolve(message);
+      }
+    });
+    const client: TestClient = {
+      ws,
+      messages,
+      send: (message) => ws.send(JSON.stringify(message)),
+      wait: (predicate, timeoutMs = 3_000) => {
+        const found = messages.find(predicate);
+        if (found) return Promise.resolve(found);
+        return new Promise<ServerMessage>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            waiters.delete(waiter);
+            reject(new Error('Timeout esperando mensaje del servidor'));
+          }, timeoutMs);
+          const waiter: Waiter = { predicate, resolve, reject, timer };
+          waiters.add(waiter);
+        });
+      },
+      close: () =>
+        new Promise<void>((resolve) => {
+          if (ws.readyState === WebSocket.CLOSED) return resolve();
+          ws.once('close', () => resolve());
+          ws.close();
+        }),
+    };
+    return new Promise<TestClient>((resolve, reject) => {
+      ws.once('open', () => resolve(client));
+      ws.once('error', reject);
+    });
+  }
+
+  async function pair(port: number): Promise<{ p0: TestClient; p1: TestClient; code: string }> {
+    const p0 = await open(port);
+    p0.send({ type: 'create' });
+    const welcome0 = (await p0.wait((m) => m.type === 'welcome')) as Extract<ServerMessage, { type: 'welcome' }>;
+    const p1 = await open(port);
+    p1.send({ type: 'join', code: welcome0.code });
+    await p1.wait((m) => m.type === 'welcome');
+    return { p0, p1, code: welcome0.code };
+  }
+
+  const isState = (m: ServerMessage): m is Extract<ServerMessage, { type: 'state' }> => m.type === 'state';
+  const isTrucoState = (m: ServerMessage): m is Extract<ServerMessage, { type: 'state' }> =>
+    m.type === 'state' && m.state.pending?.kind === 'truco';
+
+  it('create, join y acciones se sincronizan entre ambos jugadores', async () => {
+    const { handle, port } = await serve();
+    try {
+      const { p0, p1 } = await pair(port);
+      p0.send({ type: 'action', action: { type: 'callTruco' } });
+      const state = ((await p1.wait(isTrucoState)) as Extract<ServerMessage, { type: 'state' }>).state;
+      expect(state.pending).toMatchObject({ kind: 'truco', level: 1 });
+      expect(p0.messages.some(isState)).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('conserva la sala si se caen los dos y permite reconectar con el token', async () => {
+    const { handle, port } = await serve();
+    try {
+      const { p0, p1, code } = await pair(port);
+      const welcome0 = p0.messages.find((m) => m.type === 'welcome') as Extract<ServerMessage, { type: 'welcome' }>;
+      await p0.close();
+      await p1.close();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const back = await open(port, welcome0.token);
+      const resumed = (await back.wait((m) => m.type === 'welcome')) as Extract<ServerMessage, { type: 'welcome' }>;
+      expect(resumed).toMatchObject({ player: 0, code, token: welcome0.token });
+      expect(resumed.state).not.toBeNull();
+      await back.close();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('permite seguir jugando mientras el rival está desconectado', async () => {
+    const { handle, port } = await serve();
+    try {
+      const { p0, p1 } = await pair(port);
+      await p1.close();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      p0.send({ type: 'action', action: { type: 'callTruco' } });
+      const state = ((await p0.wait(isTrucoState)) as Extract<ServerMessage, { type: 'state' }>).state;
+      expect(state.pending).toMatchObject({ kind: 'truco', level: 1 });
+      expect(p0.messages.some((m) => m.type === 'error')).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rechaza un token inexistente con un error explícito', async () => {
+    const { handle, port } = await serve();
+    try {
+      const client = await open(port, VALID_UUID);
+      const error = await client.wait((m) => m.type === 'error');
+      expect(error).toMatchObject({ type: 'error' });
+      expect((error as Extract<ServerMessage, { type: 'error' }>).message).toContain('Sesión vencida');
+      await client.close();
+    } finally {
+      await handle.close();
     }
   });
 });

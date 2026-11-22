@@ -20,6 +20,7 @@ exports.expireDisconnectedTokens = expireDisconnectedTokens;
 exports.availableSeatForJoin = availableSeatForJoin;
 exports.pruneRooms = pruneRooms;
 exports.clientStateFor = clientStateFor;
+exports.detach = detach;
 exports.startServer = startServer;
 exports.isMainModule = isMainModule;
 /// <reference types="node" />
@@ -352,7 +353,7 @@ function deleteRoom(room, allRooms, bindings) {
     }
 }
 /** Un asiento desconectado sigue siendo recuperable mientras su token esté vivo. */
-function recoverable(seat, now, graceMs) {
+function recoverable(seat, now) {
     return seat.socket !== null || (seat.token !== '' && seat.tokenExpiresAt > now);
 }
 /** Libera tokens vencidos de asientos desconectados. Devuelve cuántos se liberaron. */
@@ -389,7 +390,7 @@ function pruneRooms(allRooms, now, bindings = new Map(), policy = {}) {
         result.expiredSeats += expireDisconnectedTokens(room, now, bindings);
         result.expiredTokens += tokensBefore - bindings.size;
         const anyConnected = room.seats.some((seat) => seat.socket !== null);
-        const anyRecoverable = room.seats.some((seat) => recoverable(seat, now, exports.TOKEN_GRACE_MS));
+        const anyRecoverable = room.seats.some((seat) => recoverable(seat, now));
         const idle = now - room.lastActivity > roomIdleMs;
         if ((!anyConnected && !anyRecoverable) || idle) {
             deleteRoom(room, allRooms, bindings);
@@ -447,7 +448,7 @@ function announceOpponent(room) {
         }
     }
 }
-function attach(room, player, socket, token, state, now, allRooms, bindings) {
+function attach(room, player, socket, token, state, now, bindings) {
     const seat = room.seats[player];
     const previous = seat.socket;
     if (previous && previous !== socket) {
@@ -476,12 +477,26 @@ function attach(room, player, socket, token, state, now, allRooms, bindings) {
     if (state)
         broadcast(room);
 }
+/** Exportado para tests: desconecta un socket sin perder la gracia del token. */
 function detach(socket, now, allRooms, bindings) {
     const meta = metaOf(socket);
-    if (!meta.room || meta.player === undefined)
+    let room = meta.room;
+    let player = meta.player;
+    // Si el socket no trae metadata (tests o desconexión anticipada), lo buscamos por
+    // identidad: así la gracia no depende de un WeakMap que pudo limpiarse antes.
+    if (!room || player === undefined) {
+        busca: for (const candidate of allRooms.values()) {
+            for (const index of [0, 1]) {
+                if (candidate.seats[index].socket === socket) {
+                    room = candidate;
+                    player = index;
+                    break busca;
+                }
+            }
+        }
+    }
+    if (!room || player === undefined)
         return;
-    const room = meta.room;
-    const player = meta.player;
     meta.room = undefined;
     meta.player = undefined;
     if (room.seats[player].socket !== socket)
@@ -489,13 +504,18 @@ function detach(socket, now, allRooms, bindings) {
     const seat = room.seats[player];
     seat.socket = null;
     seat.tokenExpiresAt = now + exports.TOKEN_GRACE_MS;
+    // La reconexión valida contra el binding, no contra el asiento: ambas
+    // expiraciones deben moverse juntas o la gracia se acorta tras una jugada.
+    const binding = bindings.get(seat.token);
+    if (binding)
+        binding.expiresAt = seat.tokenExpiresAt;
     touch(room, now);
     announceOpponent(room);
     logEvent(`Sala ${room.code}: jugador ${player} desconectado`);
     // Mantener la sala si queda un token válido: caídas simultáneas (suspensión
     // del celular, deploy, cambio de red) no deben destruir la partida.
     const anyConnected = room.seats.some((candidate) => candidate.socket !== null);
-    const anyRecoverable = room.seats.some((candidate) => recoverable(candidate, now, exports.TOKEN_GRACE_MS));
+    const anyRecoverable = room.seats.some((candidate) => recoverable(candidate, now));
     if (!anyConnected && !anyRecoverable) {
         deleteRoom(room, allRooms, bindings);
         logEvent(`Sala ${room.code} eliminada (ambos jugadores desconectados sin token vigente)`);
@@ -531,7 +551,7 @@ function handleMessage(socket, raw, allRooms, bindings) {
         const code = createRoomCode(new Set(allRooms.keys()));
         const room = createRoom(code, { now });
         allRooms.set(code, room);
-        attach(room, 0, socket, (0, node_crypto_1.randomUUID)(), null, now, allRooms, bindings);
+        attach(room, 0, socket, (0, node_crypto_1.randomUUID)(), null, now, bindings);
         logEvent(`Sala ${code} creada`);
         return;
     }
@@ -551,7 +571,7 @@ function handleMessage(socket, raw, allRooms, bindings) {
             return;
         }
         detach(socket, now, allRooms, bindings);
-        attach(room, freeSeat, socket, (0, node_crypto_1.randomUUID)(), room.game.getState(), now, allRooms, bindings);
+        attach(room, freeSeat, socket, (0, node_crypto_1.randomUUID)(), room.game.getState(), now, bindings);
         logEvent(`Sala ${room.code}: jugador ${freeSeat} se unió`);
         return;
     }
@@ -601,7 +621,7 @@ function handleConnection(socket, request, allRooms, bindings) {
             send(socket, { type: 'error', message: 'Sesión vencida o inválida, creá o unite a una sala.' });
         }
         else {
-            attach(binding.room, binding.player, socket, rawToken, binding.room.game.getState(), now, allRooms, bindings);
+            attach(binding.room, binding.player, socket, rawToken, binding.room.game.getState(), now, bindings);
             logEvent(`Sala ${binding.room.code}: jugador ${binding.player} reconectado`);
         }
     }

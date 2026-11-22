@@ -1,7 +1,7 @@
 import type { Difficulty } from '../core/ai';
-import { cardLabel, cardStrength, declinePoints, envidoScore, strengthTier, trucoPoints } from '../core/hand';
+import { cardLabel, cardStrength, envidoDecline, envidoScore, envidoWordCount, strengthTier, trucoPoints } from '../core/hand';
 import { isStoryUnlocked, STORY_OPPONENTS, type StoryOpponent } from '../core/story';
-import { other, type Card, type GameAction, type GameState, type PlayerIndex } from '../core/types';
+import { namesForViewer, other, type Card, type GameAction, type GameState, type PlayerIndex } from '../core/types';
 import {
   CARD_H,
   CARD_W,
@@ -10,7 +10,6 @@ import {
   drawBadge,
   drawButton,
   drawCard,
-  drawCardBack,
   drawPanel,
   drawSparkle,
   drawSuit,
@@ -47,6 +46,8 @@ export interface GameView {
   sound?: boolean;
   /** Frase temporaria del rival de campaña. */
   taunt?: string;
+  /** Aviso persistente cuando el rival online se desconecta. */
+  disconnected?: boolean;
 }
 
 /** Entrada de código de sala dibujada en el canvas (sin prompt del navegador). */
@@ -119,29 +120,31 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
     ],
   },
   {
-    title: 'ENVIDIO',
+    title: 'ENVIDO',
     left: [
       '20 + LAS 2 CARTAS DEL MISMO PALO',
       'LOS 10, 11 Y 12 VALEN 0',
       'EJEMPLO: 7 ORO + 6 ORO = 33',
       'SIN PAREJA VALE LA CARTA MAYOR',
       '',
-      'CADENA ANTES DE TIRAR CARTA',
-      'ENVIDO +2   REAL ENVIDO +3',
-      'ENVIDO ENVIDO +4',
-      'FALTA = LO QUE LE FALTA AL RIVAL',
+      'CADA PALABRA ENVIDO SUMA 2',
+      'ENVIDO +2   ENVIDO ENVIDO +4',
+      'REAL ENVIDO +3   FALTA = SALDO',
+      'LA FALTA REEMPLAZA LOS TANTOS',
+      'NO CANTES ENVIDO TRAS QUERER',
+      'NI CON TU CARTA YA TIRADA',
     ],
     right: [
-      'RECHAZO: 1 / 2 / 3 / 4 PUNTOS',
-      'FALTA MIRA EL PUNTAJE DEL RIVAL',
-      'SI EMPATAN NO SE PUEDE CANTAR',
-      'SE PUEDE SUBIR SALTANDO ESCALONES',
-      'NO SE PUEDE BAJAR NI REPETIR',
-      '',
-      'LA BOLSA SE ACUMULA Y SE PAGA',
+      'NO QUIERO = LO QUE VALIA ANTES',
+      'PRIMER CANTO RECHAZADO = 1',
+      'REAL DIRECTO RECHAZADO = 1',
+      'ENV + ENV RECHAZADO = 2',
+      'DESPUES DEL REAL SOLO FALTA',
+      'FALTA EMPATADOS: FALTAN 15',
+      'TANTOS EN JUEGO SE PAGAN',
       'AL CERRAR LA MANO, NO CORTA',
       'EMPATE DE TANTOS: GANA EL MANO',
-      'NO SE VE EL ENVIDIO DEL RIVAL',
+      'LOS TANTOS SE VEN AL FINAL',
     ],
   },
   {
@@ -160,9 +163,9 @@ const HELP_PAGES: Array<{ title: string; left: string[]; right: string[] }> = [
     right: [
       'TECLAS RAPIDAS',
       '1 / 2 / 3  JUGAR CARTA',
-      'E ENVIDIO - R REAL - D DOBLE',
+      'E ENVIDO - R REAL - D DOBLE',
       'F FALTA - T TRUCO - S SUBIR',
-      'N NO QUIERO - M MAZO',
+      'Q QUIERO - N NO QUIERO - M MAZO',
       'ENTER SIGUIENTE MANO',
       '',
       'H AYUDA - ESC MENU',
@@ -218,7 +221,7 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
   const p = state.pending;
   const nextTruco = p?.kind === 'truco' ? Math.min(3, p.level + 1) : Math.min(3, (state.trucoLevel || 0) + 1);
   const bid = p?.kind === 'envido' ? p.bid : Math.max(1, state.targetScore - state.scores[other(human)]);
-  const rejectEnvido = p?.kind === 'envido' ? declinePoints('envido', p.level) : 1;
+  const rejectEnvido = p?.kind === 'envido' ? envidoDecline(p.bids) : 1;
   const mazoEnvido = state.played.flat().every((card) => card === null) && state.envidoStatus === 'open' ? 1 : 0;
   const foldValue = trucoPoints(state.trucoLevel) + mazoEnvido;
 
@@ -243,19 +246,19 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
     },
     callEnvido: {
       type: 'callEnvido', label: 'ENVIDO +2', color: '#8b6b1f', text: COLORS.white,
-      hint: 'Sumás 2 a la bolsa. Se paga al cerrar la mano.',
+      hint: 'Sumás 2 a los tantos en juego. Se paga al cerrar la mano.',
     },
     callRealEnvido: {
       type: 'callRealEnvido', label: 'REAL +3', color: '#9a6a1d', text: COLORS.white,
-      hint: 'Sumás 3 a la bolsa. Se puede subir a envido envido o falta.',
+      hint: 'Sumás 3 a los tantos en juego. Sólo se puede subir a falta.',
     },
     callEnvidoEnvido: {
-      type: 'callEnvidoEnvido', label: 'ENVIDO ENVIDO +4', color: '#a57718', text: COLORS.white,
-      hint: 'Sumás 4 a la bolsa. El rechazo da 3 puntos. Es el escalón previo al falta.',
+      type: 'callEnvidoEnvido', label: `ENVIDO ENVIDO +${p?.kind === 'envido' ? p.potAfter + 2 : 4}`, color: '#a57718', text: COLORS.white,
+      hint: 'Segundo envido: sumás 2 (4 en total). El rechazo da 2 puntos.',
     },
     callFalta: {
       type: 'callFalta', label: `FALTA +${bid}`, color: '#7d4a12', text: COLORS.white,
-      hint: `Cantás ${bid}: lo que le falta al rival para ${state.targetScore}. Rechazo = 4 para vos.`,
+      hint: `Cantás ${bid}: lo que le falta a quien va ganando para ${state.targetScore}. Rechazo = ${rejectEnvido} para vos.`,
     },
     acceptEnvido: {
       type: 'acceptEnvido', label: `QUIERO +${p?.kind === 'envido' ? p.bid : 2}`,
@@ -266,7 +269,7 @@ function actionDefs(state: GameState, human: PlayerIndex): Partial<Record<GameAc
       color: '#6d2b31', text: COLORS.white, hint: 'No aceptás: el rival suma puntos, pero la mano sigue.',
     },
     fold: {
-      type: 'fold', label: `MAZO +${foldValue}`, color: '#464652', text: COLORS.white,
+      type: 'fold', label: `MAZO (RIVAL +${foldValue})`, color: '#464652', text: COLORS.white,
       hint: mazoEnvido
         ? 'Te rendís antes de cerrar el envido: rival suma truco + 1 y cierra la mano.'
         : 'Te rendís. El rival se lleva el truco vigente y cierra la mano.',
@@ -286,6 +289,9 @@ export class Renderer {
   private readonly table: HTMLCanvasElement;
   private readonly defaultGameTable: HTMLCanvasElement;
   private readonly storyTables = new Map<string, HTMLCanvasElement>();
+  private lastRound = 0;
+  private lastHandNumber = 0;
+  private roundFlash: { text: string; until: number } | null = null;
 
   constructor(private readonly ctx: CanvasRenderingContext2D, private readonly width: number, private readonly height: number) {
     this.table = makeTable(width, height);
@@ -318,14 +324,6 @@ export class Renderer {
     this.ctx.translate(x, y);
     this.ctx.scale(scale, scale);
     drawCard(this.ctx, card, 0, 0, highlight, lift, keyHint, tier);
-    this.ctx.restore();
-  }
-
-  private scaledBack(x: number, y: number, scale: number): void {
-    this.ctx.save();
-    this.ctx.translate(x, y);
-    this.ctx.scale(scale, scale);
-    drawCardBack(this.ctx, 0, 0);
     this.ctx.restore();
   }
 
@@ -381,7 +379,7 @@ export class Renderer {
     hits.push(this.button('menu:local', '1 JUGADOR - VS IA', 70, 134, W - 140, 28, COLORS.red, COLORS.white, 2, hover === 'menu:local'));
     hits.push(this.button('menu:online', 'MULTIJUGADOR ONLINE', 70, 166, W - 140, 28, '#277a4c', COLORS.white, 2, hover === 'menu:online'));
 
-    drawTextCentered(ctx, 'DIFICULTAD DE LA IA (PARTIDA RAPIDA)', W / 2, 200, COLORS.gold);
+    drawTextCentered(ctx, 'DIFICULTAD DE LA IA (PARTIDA RÁPIDA)', W / 2, 200, COLORS.gold);
     const labels: Record<Difficulty, string> = { facil: 'FACIL', medio: 'MEDIO', dificil: 'DIFICIL' };
     DIFFICULTIES.forEach((level, i) => {
       const id = `diff:${level}`;
@@ -548,17 +546,17 @@ export class Renderer {
       this.panel(96, 64, W - 192, 54, COLORS.woodDark, COLORS.gold, true);
       const value = input.value.padEnd(6, '_').slice(0, 6);
       drawTextCenteredShadow(ctx, value, W / 2, 73, COLORS.gold, 4);
-      drawTextCentered(ctx, 'TECLAS A-Z - BORRAR - ENTER', W / 2, 108, COLORS.gray);
+      drawTextCentered(ctx, 'ESCRIBÍ 6 LETRAS Y PULSÁ UNIRME', W / 2, 108, COLORS.gray);
       hits.push(this.button('online:joinConfirm', 'UNIRME', 62, 132, 170, 30, COLORS.red, COLORS.white, 2, hover === 'online:joinConfirm'));
       hits.push(this.button('online:joinCancel', 'CANCELAR', 248, 132, 170, 30, COLORS.navy, COLORS.gold, 1, hover === 'online:joinCancel'));
-      drawTextCentered(ctx, 'SOLO LETRAS - 4 A 6 CARACTERES', W / 2, 184, COLORS.gray);
+      drawTextCentered(ctx, 'SOLO LETRAS - 6 CARACTERES', W / 2, 184, COLORS.gray);
     } else if (!info.code) {
       drawTextCentered(ctx, 'CREÁ UNA SALA Y PASALE EL CODIGO', W / 2, 56, COLORS.cream);
       hits.push(this.button('online:create', 'CREAR SALA', 50, 82, 180, 34, '#277a4c', COLORS.white, 2, hover === 'online:create'));
       hits.push(this.button('online:join', 'UNIRME', 250, 82, 180, 34, COLORS.red, COLORS.white, 2, hover === 'online:join'));
       drawTextCentered(ctx, 'DOS JUGADORES - UNA SOLA PARTIDA', W / 2, 142, COLORS.gray);
-      drawTextCentered(ctx, 'EL CODIGO TIENE 4 A 6 LETRAS', W / 2, 158, COLORS.gray);
-      drawTextCentered(ctx, 'EL SERVIDOR ES AUTORITATIVO', W / 2, 174, COLORS.gray);
+      drawTextCentered(ctx, 'EL CODIGO TIENE 6 LETRAS', W / 2, 158, COLORS.gray);
+      drawTextCentered(ctx, 'PARTIDA SEGURA: NADIE HACE TRAMPA', W / 2, 174, COLORS.gray);
     } else {
       drawTextCentered(ctx, 'CODIGO DE SALA', W / 2, 50, COLORS.gray);
       this.panel(150, 62, 180, 42, COLORS.woodDark, COLORS.gold, true);
@@ -570,7 +568,7 @@ export class Renderer {
         116,
         info.connected ? COLORS.green : COLORS.cream,
       );
-      hits.push(this.button('online:copy', 'COPIAR CODIGO', 50, 146, 180, 28, COLORS.panelLight, COLORS.cream, 1, hover === 'online:copy'));
+      hits.push(this.button('online:copy', 'COPIAR INVITACION', 50, 146, 180, 28, COLORS.panelLight, COLORS.cream, 1, hover === 'online:copy'));
       hits.push(this.button('online:back', 'VOLVER AL MENU', 250, 146, 180, 28, COLORS.redDark, COLORS.white, 1, hover === 'online:back'));
     }
     drawTextCentered(ctx, clip(info.status, 58), W / 2, 224, COLORS.pink);
@@ -625,13 +623,31 @@ export class Renderer {
     const hover = view.hover;
     const defs = actionDefs(state, human);
 
+    if (state.handNumber !== this.lastHandNumber) {
+      this.lastHandNumber = state.handNumber;
+      this.lastRound = state.round;
+      this.roundFlash = null;
+    } else if (state.round > this.lastRound && state.phase === 'playing') {
+      const finished = state.played[this.lastRound];
+      const mine = finished?.[human];
+      const theirs = finished?.[rival];
+      if (mine && theirs) {
+        const diff = cardStrength(mine) - cardStrength(theirs);
+        this.roundFlash = {
+          text: diff === 0 ? 'PARDA' : diff > 0 ? 'GANASTE LA RONDA' : 'PERDISTE LA RONDA',
+          until: performance.now() + 1200,
+        };
+      }
+    }
+    this.lastRound = state.round;
+
     // ---------- Placas de marcador ----------
     const humanTurn = state.phase === 'playing' && (state.pending ? other(state.pending.by) === human : state.turn === human);
     const rivalTurn = state.phase === 'playing' && (state.pending ? other(state.pending.by) === rival : state.turn === rival);
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 5);
     this.panel(6, 2, 104, 28, 'rgba(18,13,10,0.94)', humanTurn ? shadeColor(COLORS.green, pulse * 0.45) : COLORS.goldDark);
     drawAvatar(ctx, 'player', 10, 6, 1);
-    drawText(ctx, 'VOS', 28, 4, COLORS.gold);
+    drawText(ctx, 'TUS TANTOS', 28, 4, COLORS.gold);
     drawText(ctx, String(state.scores[human]).padStart(2, '0'), 28, 14, COLORS.green, 2);
 
     this.panel(W - 110, 2, 104, 28, 'rgba(18,13,10,0.94)', rivalTurn ? shadeColor(COLORS.red, pulse * 0.45) : COLORS.goldDark);
@@ -644,21 +660,25 @@ export class Renderer {
 
     let bx = 184;
     if (state.trucoLevel > 0) bx += drawBadge(ctx, `TRUCO ${trucoPoints(state.trucoLevel)}`, bx, 30, COLORS.redDark) + 5;
-    if (state.envidoPot > 0) bx += drawBadge(ctx, `BOLSA ${state.envidoPot}`, bx, 30, COLORS.pink) + 5;
+    if (state.envidoPot > 0) bx += drawBadge(ctx, `ENV ${state.envidoPot}`, bx, 30, COLORS.gold) + 5;
     if (state.envidoResult) drawBadge(ctx, `ENV ${state.envidoResult.prize}`, bx, 30, COLORS.goldDark);
 
     // Tres puntos con borde: verde ganaste, rojo perdió, dorado empató.
     for (let r = 0; r < 3; r++) {
       const round = state.played[r];
       let color = COLORS.panelLight;
-      if (round[0] && round[1]) {
-        const w = this.roundWinnerForDisplay(round[0], round[1]);
-        color = w === 'EMP' ? COLORS.goldDark : (w === 'P1') === (human === 0) ? COLORS.green : COLORS.red;
+      const winner = round[0] && round[1] ? this.roundWinnerForDisplay(round[0], round[1]) : null;
+      if (winner) {
+        color = winner === 'EMP' ? COLORS.goldDark : (winner === 'P1') === (human === 0) ? COLORS.green : COLORS.red;
       }
       ctx.fillStyle = COLORS.shadow;
       ctx.fillRect(229 + r * 10, 44, 9, 9);
       ctx.fillStyle = color;
       ctx.fillRect(230 + r * 10, 45, 7, 7);
+      if (winner) {
+        const won = (winner === 'P1') === (human === 0);
+        drawTextCentered(ctx, winner === 'EMP' ? '=' : won ? 'G' : 'P', 233.5 + r * 10, 46, COLORS.ink);
+      }
     }
     hits.push({ id: 'game:rounds', x: 226, y: 41, w: 37, h: 15 });
 
@@ -677,16 +697,29 @@ export class Renderer {
     const shownPlayed = state.played[shownRound];
     const rivalPlayed = shownPlayed[rival];
     const humanPlayed = shownPlayed[human];
+
+    // Las rondas cerradas quedan apiladas a los costados: se ve qué salió.
+    for (let r = 0; r < Math.min(state.round, 3); r++) {
+      const round = state.played[r];
+      if (round[rival]) this.scaledCard(round[rival]!, 16, 80 + r * 28, 0.5);
+      if (round[human]) this.scaledCard(round[human]!, W - 38, 80 + r * 28, 0.5);
+    }
+    // Nunca se dibuja un dorso que el rival no jugó.
     if (rivalPlayed) this.scaledCard(rivalPlayed, 222, 74, 0.8);
-    else if (humanPlayed) this.scaledBack(222, 74, 0.8);
     if (humanPlayed) this.scaledCard(humanPlayed, 218, 124, 1);
-    else if (rivalPlayed) this.scaledBack(218, 124, 1);
 
     if (state.pending) {
       const p = state.pending;
+      const lastCall = p.kind === 'envido' ? p.bids[p.bids.length - 1]?.call : undefined;
       const label = p.kind === 'truco'
         ? p.level === 1 ? '¿TRUCO?' : p.level === 2 ? '¿RETRUCO?' : '¿VALE 4?'
-        : p.level === 3 ? '¿FALTA?' : p.level === 2 ? '¿REAL?' : '¿ENVIDO?';
+        : lastCall === 'falta'
+          ? '¿FALTA?'
+          : lastCall === 'real'
+            ? '¿REAL ENVIDO?'
+            : envidoWordCount(p.bids) >= 2
+              ? '¿ENVIDO ENVIDO?'
+              : '¿ENVIDO?';
       this.panel(166, 58, 148, 18, 'rgba(10,7,14,0.94)', COLORS.gold);
       drawTextCenteredShadow(ctx, label, W / 2, 62, COLORS.gold, 2);
     } else if (view.notice) {
@@ -705,51 +738,73 @@ export class Renderer {
       });
     }
 
+    if (view.disconnected) {
+      this.panel(150, 84, 180, 20, COLORS.redDark, COLORS.gold);
+      drawTextCentered(ctx, 'RIVAL DESCONECTADO', W / 2, 88, COLORS.white);
+    }
+    if (this.roundFlash && performance.now() < this.roundFlash.until) {
+      this.panel(166, 58, 148, 18, 'rgba(10,7,14,0.94)', COLORS.green);
+      drawTextCenteredShadow(ctx, this.roundFlash.text, W / 2, 62, COLORS.cream, 1);
+    } else {
+      this.roundFlash = null;
+    }
+
+    // Historial breve: lo cantado y jugado no se pierde al pasar de ronda.
+    const recent = state.log.slice(-2);
+    if (recent.length > 0) {
+      this.panel(8, 134, 150, 24, 'rgba(10,7,14,0.88)', COLORS.goldDark);
+      recent.forEach((line, i) => {
+        drawText(ctx, clip(namesForViewer(line, human), 23), 12, 137 + i * 10, i === recent.length - 1 ? COLORS.cream : COLORS.gray);
+      });
+    }
+
     // Tu envido siempre a la vista, el del rival nunca.
     this.panel(8, 238, 92, 20, COLORS.woodDark, COLORS.pink);
     drawSuit(ctx, 'oro', 13, 244, 1, COLORS.pink);
     drawText(ctx, `${envidoScore(state.hands[human]).points}`, 25, 243, COLORS.pink, 2);
 
-    // ---------- Botones: centro si son pocos, laterales si son muchos ----------
+    // ---------- Botones: una barra agrupada, lejos de las cartas ----------
+    const groupOrder: GameAction['type'][] = [
+      'acceptEnvido', 'declineEnvido', 'callEnvido', 'callEnvidoEnvido', 'callRealEnvido', 'callFalta',
+      'acceptTruco', 'declineTruco', 'callTruco', 'raiseTruco',
+      'fold', 'nextHand', 'restart',
+    ];
     const labels: ActionDef[] = [];
     for (const action of view.legal) {
       if (action.type === 'playCard') continue;
+      // El cierre ya dibuja su propio botón dentro del resumen.
+      if (state.phase === 'handEnd' && action.type === 'nextHand') continue;
+      if (state.phase === 'gameEnd' && action.type === 'restart') continue;
       const def = defs[action.type];
       if (def && !labels.some((l) => l.type === def.type)) labels.push(def);
     }
+    labels.sort((a, b) => groupOrder.indexOf(a.type) - groupOrder.indexOf(b.type));
     if (labels.length > 0) {
-      if (labels.length <= 3) {
-        const w = 126;
-        const gap = 8;
-        const total = labels.length * w + (labels.length - 1) * gap;
-        const start = Math.round((W - total) / 2);
-        labels.forEach((def, i) => {
-          const id = `action:${def.type}`;
-          hits.push(this.button(id, def.label, start + i * (w + gap), 188, w, 22, def.color, def.text, 1, hover === id));
-        });
-      } else {
-        const per = Math.ceil(labels.length / 2);
-        labels.forEach((def, i) => {
-          const col = i < per ? 0 : 1;
-          const row = col === 0 ? i : i - per;
-          const x = col === 0 ? 10 : W - 110;
-          const y = 100 + row * 30;
-          const id = `action:${def.type}`;
-          hits.push(this.button(id, def.label, x, y, 100, 24, def.color, def.text, 1, hover === id));
-        });
-      }
+      const w = 112;
+      const gap = 6;
+      const rows = labels.length <= 4 ? 1 : 2;
+      const perRow = Math.ceil(labels.length / rows);
+      labels.forEach((def, i) => {
+        const row = Math.floor(i / perRow);
+        const inRow = Math.min(perRow, labels.length - row * perRow);
+        const total = inRow * w + (inRow - 1) * gap;
+        const x = Math.round((W - total) / 2) + (i % perRow) * (w + gap);
+        const y = rows === 1 ? 182 : 160 + row * 22;
+        const id = `action:${def.type}`;
+        hits.push(this.button(id, def.label, x, y, w, 20, def.color, def.text, 1, hover === id));
+      });
     }
 
-    // ---------- Papelitos de ayuda: solo al señalar ----------
+    // ---------- Ayuda al señalar (o con pulsación larga en el celular) ----------
     const hoveredAction = labels.find((def) => hover === `action:${def.type}`);
     if (hoveredAction) {
       const button = hits.find((h) => h.id === `action:${hoveredAction.type}`);
       const tw = 196;
       const tx = button && button.x + button.w / 2 < W / 2 ? 8 : W - tw - 8;
-      const ty = button && button.y > 150 ? button.y - 38 : 64;
+      const ty = 108;
       this.panel(tx, ty, tw, 34, COLORS.paper, COLORS.goldDark, true);
       ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(tx + 94, ty - 2, 6, 4);
+      ctx.fillRect(button && button.x + button.w / 2 < W / 2 ? tx + 94 : tx + 96, ty - 2, 6, 4);
       wrapText(hoveredAction.hint, 30).slice(0, 2).forEach((line, i) => {
         drawText(ctx, line, tx + 7, ty + 6 + i * 12, COLORS.ink);
       });
@@ -809,11 +864,26 @@ export class Renderer {
     // ---------- Cierres ----------
     if (state.phase === 'handEnd') {
       this.dim(0.72, 40);
-      this.panel(120, 96, W - 240, 76, COLORS.woodDark, COLORS.gold, true);
-      const won = state.lastHand?.winner === human;
-      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 104, won ? COLORS.green : COLORS.red, 2);
-      if (state.lastHand) drawTextCentered(ctx, `+${state.lastHand.points}`, W / 2, 130, COLORS.cream, 2);
-      hits.push(this.button('action:nextHand', 'SIGUIENTE', 170, 146, 140, 20, '#277a4c', COLORS.white, 1, hover === 'action:nextHand'));
+      this.panel(104, 82, W - 208, 100, COLORS.woodDark, COLORS.gold, true);
+      const last = state.lastHand;
+      const won = last?.winner === human;
+      const who = (player: PlayerIndex): string => player === human ? 'VOS' : rivalLabel;
+      drawTextCenteredShadow(ctx, won ? 'MANO PARA VOS' : `MANO PARA ${rivalLabel}`, W / 2, 88, won ? COLORS.green : COLORS.red, 2);
+      if (last?.envido) {
+        drawTextCentered(
+          ctx,
+          `ENVIDO ${who(last.envido.winner)} +${last.envido.prize} (${last.envido.score})`,
+          W / 2,
+          110,
+          COLORS.gold,
+        );
+        const cards = last.envido.cards.map((card) => cardLabel(card)).join(' y ');
+        drawTextCentered(ctx, clip(cards.toUpperCase(), 42), W / 2, 122, COLORS.gray);
+      }
+      if (last?.truco) {
+        drawTextCentered(ctx, `TRUCO ${who(last.truco.winner)} +${last.truco.points}`, W / 2, 136, COLORS.cream);
+      }
+      hits.push(this.button('action:nextHand', 'SIGUIENTE MANO', 165, 153, 150, 21, '#277a4c', COLORS.white, 1, hover === 'action:nextHand'));
     }
 
     if (state.phase === 'gameEnd') {
